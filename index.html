@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="ChainLane" />
+  <meta name="theme-color" content="#0A0F1E" />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+  <link rel="icon" href="/icons/icon-192.png" />
+  <title>ChainLane</title>
+
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.30.0/mapbox-gl.css" rel="stylesheet" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.30.0/mapbox-gl.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <style>
+    :root {
+      --bg: #0A0F1E; --surface: #111827; --surface2: #182236; --border: #1E293B;
+      --accent: #00D4FF; --purple: #A855F7; --orange: #F97316; --gold: #EAB308;
+      --success: #22C55E; --danger: #EF4444; --text: #fff; --muted: #94A3B8;
+      --safe-top: env(safe-area-inset-top, 0px); --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; }
+    body { background: var(--bg); color: var(--text); font-family: 'Space Grotesk', system-ui, sans-serif; overflow: hidden; }
+    button { font-family: inherit; cursor: pointer; }
+    input { font-family: inherit; }
+    .hidden { display: none !important; }
+
+    /* ---------- Auth ---------- */
+    #auth { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; background:
+      radial-gradient(ellipse 80% 50% at 50% 0%, rgba(0,212,255,0.10), transparent 70%), var(--bg); overflow-y: auto; }
+    .auth-card { width: 100%; max-width: 380px; }
+    .logo { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 28px; }
+    .logo-icon { width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, var(--accent), var(--purple)); display: flex; align-items: center; justify-content: center; font-size: 20px; }
+    .logo-text { font-size: 26px; font-weight: 800; letter-spacing: -0.5px; }
+    .tabs { display: flex; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 4px; margin-bottom: 20px; }
+    .tab { flex: 1; padding: 10px; text-align: center; border-radius: 9px; font-size: 14px; font-weight: 600; color: var(--muted); border: none; background: none; }
+    .tab.active { background: var(--accent); color: var(--bg); }
+    .field { margin-bottom: 12px; }
+    .field input { width: 100%; padding: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-size: 15px; outline: none; }
+    .field input:focus { border-color: var(--accent); }
+    .btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-size: 15px; font-weight: 700; }
+    .btn-primary { background: var(--accent); color: var(--bg); }
+    .btn-primary:disabled { opacity: 0.5; }
+    .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+    .msg { font-size: 13px; padding: 10px 12px; border-radius: 8px; margin-bottom: 12px; display: none; }
+    .msg.err { background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.3); color: #FCA5A5; display: block; }
+    .msg.ok { background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.3); color: #86EFAC; display: block; }
+    .fine { font-size: 12px; color: var(--muted); text-align: center; margin-top: 14px; line-height: 1.5; }
+    .fine a { color: var(--accent); }
+
+    /* ---------- App shell ---------- */
+    #app { position: fixed; inset: 0; }
+    #map { position: absolute; inset: 0; bottom: calc(60px + var(--safe-bottom)); }
+    .mapboxgl-ctrl-bottom-right { bottom: 140px !important; }
+    .mapboxgl-ctrl-logo, .mapboxgl-ctrl-attrib { opacity: 0.5; }
+
+    .overlay { position: absolute; top: 0; left: 0; right: 0; z-index: 10; padding: calc(10px + var(--safe-top)) 12px 0; pointer-events: none; }
+    .overlay > * { pointer-events: auto; }
+    .card { background: rgba(17,24,39,0.95); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; margin-bottom: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.4); backdrop-filter: blur(8px); }
+    .top-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+    .brand { display: flex; align-items: center; gap: 8px; }
+    .brand-icon { width: 26px; height: 26px; border-radius: 6px; background: linear-gradient(135deg, var(--accent), var(--purple)); display: flex; align-items: center; justify-content: center; font-size: 13px; }
+    .brand-name { font-size: 15px; font-weight: 700; }
+    .pts { font-size: 20px; font-weight: 800; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; border: 1px solid; white-space: nowrap; }
+    .pill-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+    .pill.live { color: var(--success); background: rgba(34,197,94,0.1); border-color: rgba(34,197,94,0.3); }
+    .pill.live .pill-dot { animation: pulse 1.4s infinite; }
+    .pill.idle { color: var(--muted); background: rgba(148,163,184,0.1); border-color: rgba(148,163,184,0.3); }
+    .pill.off { color: var(--danger); background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.3); }
+    @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.3 } }
+    .progress { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; margin-bottom: 5px; }
+    .progress > div { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.4s; }
+    .labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+    .labels span:last-child { color: var(--accent); }
+
+    .banner { display: flex; align-items: center; gap: 10px; }
+    .banner.sub { background: rgba(0,212,255,0.08); border-color: rgba(0,212,255,0.3); }
+    .banner.warn { background: rgba(249,115,22,0.10); border-color: rgba(249,115,22,0.35); }
+    .banner p { flex: 1; font-size: 12px; color: var(--muted); line-height: 1.4; }
+    .banner p strong { color: var(--text); }
+    .banner button { background: var(--accent); color: var(--bg); border: none; border-radius: 20px; padding: 8px 14px; font-size: 12px; font-weight: 800; white-space: nowrap; }
+    .banner.warn button { background: var(--orange); color: #fff; }
+
+    .toast-wrap { position: absolute; left: 12px; right: 12px; bottom: calc(76px + var(--safe-bottom)); z-index: 30; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+    .toast { background: rgba(17,24,39,0.97); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 12px; padding: 12px 14px; display: flex; align-items: center; gap: 12px; animation: slideUp 0.3s ease; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+    .toast.earn { border-left-color: var(--success); }
+    .toast.err  { border-left-color: var(--danger); }
+    .toast.info { border-left-color: var(--accent); }
+    .toast .t-icon { font-size: 22px; }
+    .toast .t-main { font-size: 14px; font-weight: 700; }
+    .toast .t-sub { font-size: 12px; color: var(--muted); }
+    @keyframes slideUp { from { opacity: 0; transform: translateY(12px) } to { opacity: 1; transform: none } }
+
+    .fab { position: absolute; z-index: 10; bottom: calc(72px + var(--safe-bottom)); width: 46px; height: 46px; border-radius: 50%; background: var(--surface); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 4px 14px rgba(0,0,0,0.4); }
+    .fab.left { left: 12px; }
+    .fab.right { right: 12px; }
+    .navbar { position: absolute; left: 12px; right: 12px; bottom: calc(126px + var(--safe-bottom)); z-index: 15; background: rgba(17,24,39,0.97); border: 1px solid var(--accent); border-radius: 14px; padding: 12px 14px; display: none; align-items: center; gap: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+    .navbar.on { display: flex; }
+    .navbar .n-main { font-size: 16px; font-weight: 800; }
+    .navbar .n-sub { font-size: 12px; color: var(--muted); }
+    .navbar .n-arrow { font-size: 26px; transition: transform 0.3s; }
+    .navbar button { margin-left: auto; background: var(--border); color: var(--muted); border: none; border-radius: 20px; padding: 8px 12px; font-size: 12px; font-weight: 700; }
+
+    .nav { position: absolute; left: 0; right: 0; bottom: 0; height: calc(60px + var(--safe-bottom)); padding-bottom: var(--safe-bottom); background: var(--surface); border-top: 1px solid var(--border); display: flex; justify-content: space-around; align-items: center; z-index: 20; }
+    .nav button { background: none; border: none; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 10px; font-weight: 600; padding: 6px 14px; }
+    .nav button.active { color: var(--accent); }
+    .nav .ic { font-size: 22px; }
+
+    .arrive { position: fixed; left: 12px; right: 12px; top: calc(14px + var(--safe-top)); z-index: 60; background: linear-gradient(160deg, #0f1a33, #111827); border: 2px solid var(--success); border-radius: 18px; padding: 16px 18px; box-shadow: 0 16px 48px rgba(0,0,0,0.6); display: none; animation: slideDown 0.35s ease; }
+    .arrive.on { display: block; }
+    @keyframes slideDown { from { opacity: 0; transform: translateY(-20px) } to { opacity: 1; transform: none } }
+    .arrive .a-top { display: flex; align-items: center; gap: 12px; }
+    .arrive .a-pts { font-size: 30px; font-weight: 800; color: var(--success); white-space: nowrap; }
+    .arrive .a-name { font-size: 20px; font-weight: 800; line-height: 1.15; }
+    .arrive .a-addr { font-size: 13px; color: var(--muted); margin-top: 2px; }
+    .arrive .a-here { margin-top: 12px; background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.35); border-radius: 12px; padding: 10px 12px; font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    .arrive .a-offer { margin-top: 10px; font-size: 13px; color: var(--muted); line-height: 1.45; }
+    .arrive .a-offer b { color: var(--text); }
+    .arrive .a-close { position: absolute; top: 10px; right: 12px; background: none; border: none; color: var(--muted); font-size: 22px; }
+    .approach { position: absolute; left: 12px; right: 12px; top: calc(118px + var(--safe-top)); z-index: 12; background: rgba(17,24,39,0.97); border: 1px solid var(--accent); border-left: 5px solid var(--accent); border-radius: 12px; padding: 10px 14px; display: none; align-items: center; gap: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); animation: slideDown 0.3s ease; }
+    .approach.on { display: flex; }
+    .approach .p-main { font-size: 15px; font-weight: 800; }
+    .approach .p-sub { font-size: 12px; color: var(--muted); }
+    .tok.pulse { animation: tokpulse 0.9s ease-in-out infinite; }
+    @keyframes tokpulse { 0%,100% { transform: scale(1); box-shadow: 0 0 14px currentColor } 50% { transform: scale(1.35); box-shadow: 0 0 30px 6px currentColor } }
+    .fab.voice { right: 12px; bottom: calc(128px + var(--safe-bottom)); width: 40px; height: 40px; font-size: 17px; }
+
+    /* marker */
+    .tok { width: 40px; height: 40px; border-radius: 50%; border: 3px solid #fff; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; color: #fff; cursor: pointer; transition: transform 0.2s; }
+    .tok.cool { opacity: 0.35; filter: grayscale(0.7); }
+    .tok.near { transform: scale(1.15); }
+
+    /* sheets */
+    .sheet-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 50; display: flex; align-items: flex-end; }
+    .sheet { width: 100%; max-height: 85vh; overflow-y: auto; background: var(--surface); border-top: 1px solid var(--border); border-radius: 20px 20px 0 0; padding: 18px 18px calc(24px + var(--safe-bottom)); }
+    .sheet h2 { font-size: 18px; font-weight: 800; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+    .sheet h2 button { background: none; border: none; color: var(--muted); font-size: 22px; }
+    .sheet p.sub { font-size: 13px; color: var(--muted); margin-bottom: 14px; }
+    .row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+    .row:last-child { border-bottom: none; }
+    .row .r-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .row .r-pts { font-weight: 800; }
+    .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+    .stat { background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 14px; text-align: center; }
+    .stat b { display: block; font-size: 22px; font-weight: 800; }
+    .stat span { font-size: 11px; color: var(--muted); }
+    .reward-box { background: var(--surface2); border: 1px solid var(--border); border-radius: 14px; padding: 16px; margin-bottom: 12px; }
+    .reward-box h3 { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+    .reward-box p { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+    .qr { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px; background: #fff; border-radius: 12px; margin: 10px 0; }
+    .qr canvas { display: block; }
+    .qr code { color: #000; font-size: 11px; word-break: break-all; text-align: center; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
+    .empty { text-align: center; color: var(--muted); font-size: 13px; padding: 30px 0; }
+  </style>
+</head>
+<body>
+
+<!-- ================= AUTH ================= -->
+<div id="auth" class="hidden">
+  <div class="auth-card">
+    <div class="logo"><div class="logo-icon">⛓</div><div class="logo-text">ChainLane</div></div>
+    <div class="tabs">
+      <button class="tab active" id="tab-in" onclick="authTab('in')">Sign In</button>
+      <button class="tab" id="tab-up" onclick="authTab('up')">Create Account</button>
+    </div>
+    <div id="auth-msg" class="msg"></div>
+
+    <form id="form-in" onsubmit="return signIn(event)">
+      <div class="field"><input id="in-email" type="email" placeholder="Email" autocomplete="email" required /></div>
+      <div class="field"><input id="in-pass" type="password" placeholder="Password" autocomplete="current-password" required /></div>
+      <button class="btn btn-primary" id="in-btn" type="submit">Sign In</button>
+      <p class="fine"><a href="#" onclick="forgotPassword();return false;">Forgot password?</a></p>
+    </form>
+
+    <form id="form-up" class="hidden" onsubmit="return signUp(event)">
+      <div class="field"><input id="up-name" type="text" placeholder="Full name" autocomplete="name" required /></div>
+      <div class="field"><input id="up-email" type="email" placeholder="Email" autocomplete="email" required /></div>
+      <div class="field"><input id="up-pass" type="password" placeholder="Password (6+ characters)" autocomplete="new-password" minlength="6" required /></div>
+      <div class="field"><input id="up-zip" type="text" inputmode="numeric" placeholder="Zip code" pattern="[0-9]{5}" maxlength="5" required /></div>
+      <button class="btn btn-primary" id="up-btn" type="submit">Create Account</button>
+      <p class="fine">By signing up you agree to our <a href="https://mychainlane.com/policies/" target="_blank">terms and privacy policy</a>.</p>
+    </form>
+  </div>
+</div>
+
+<!-- ================= APP ================= -->
+<div id="app" class="hidden">
+  <div id="map"></div>
+
+  <div class="overlay">
+    <div class="card">
+      <div class="top-row">
+        <div class="brand"><div class="brand-icon">⛓</div><span class="brand-name">ChainLane</span></div>
+        <span class="pts" id="pts">0 pts</span>
+        <span class="pill idle" id="track-pill"><span class="pill-dot"></span><span id="track-text">Starting…</span></span>
+      </div>
+      <div class="progress"><div id="prog"></div></div>
+      <div class="labels"><span id="to-next">100 pts to next reward</span><span id="near-count">0 tokens on map</span></div>
+    </div>
+
+    <div class="card banner sub hidden" id="sub-banner">
+      <p><strong>Subscribe to collect tokens</strong> and earn real rewards from local businesses.</p>
+      <button onclick="openStripe()">$10/mo</button>
+    </div>
+
+    <div class="card banner warn hidden" id="loc-banner">
+      <p><strong>Location is off.</strong> <span id="loc-help">Allow location so ChainLane can collect tokens as you drive.</span></p>
+      <button onclick="startTracking(true)">Enable</button>
+    </div>
+  </div>
+
+  <div class="arrive" id="arrive">
+    <button class="a-close" onclick="hideArrive()">✕</button>
+    <div class="a-top"><div class="a-pts" id="a-pts">+50</div><div><div class="a-name" id="a-name"></div><div class="a-addr" id="a-addr"></div></div></div>
+    <div class="a-here">📍 <span id="a-here">You're here — look for the sign</span></div>
+    <div class="a-offer" id="a-offer"></div>
+  </div>
+  <div class="approach" id="approach"><div style="font-size:22px">🏁</div><div><div class="p-main" id="p-main"></div><div class="p-sub" id="p-sub"></div></div></div>
+  <button class="fab voice" id="voice-fab" onclick="toggleVoice()" title="Voice on/off">🔊</button>
+
+  <div class="toast-wrap" id="toasts"></div>
+
+  <div class="navbar" id="navbar"><div class="n-arrow" id="n-arrow">⬆️</div><div style="flex:1"><div class="n-main" id="n-main"></div><div class="n-sub" id="n-sub"></div></div><button id="n-mode" onclick="toggleNavMode()" style="margin-left:0">🚗 Drive</button><button onclick="stopNav()">End</button></div>
+
+  <button class="fab left" onclick="openSheet('rewards')" title="Rewards">🎁</button>
+  <button class="fab right" onclick="recenter()" title="My location">📍</button>
+
+  <div class="nav">
+    <button class="active" id="nav-map" onclick="closeSheet()"><span class="ic">🗺️</span>Map</button>
+    <button id="nav-rewards" onclick="openSheet('rewards')"><span class="ic">🎁</span>Rewards</button>
+    <button id="nav-history" onclick="openSheet('history')"><span class="ic">🕐</span>History</button>
+    <button id="nav-profile" onclick="openSheet('profile')"><span class="ic">👤</span>Profile</button>
+  </div>
+</div>
+
+<div id="sheet-root"></div>
+
+<script>
+/* =========================================================================
+   CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
+   ========================================================================= */
+const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
+const SUPABASE_KEY  = 'sb_publishable_-BhG4wJldST1w9mtVfyRDg_afXUM6hE';
+const MAPBOX_TOKEN  = 'pk.eyJ1IjoiY2hhaW55MTIzIiwiYSI6ImNtbmV4b3BqYzA0aGIycHB0c3ZndWJvOHoifQ.AMfDgzCfpDEOWhA_M7lIQQ';
+const STRIPE_LINK   = 'https://buy.stripe.com/fZubIU8wn4L87nHcTk4Vy0c';
+
+let COLLECT_RADIUS_M = 100;       // loaded from app_settings; the server enforces the same number
+const MI = 1609.344, FT = 0.3048;
+const APPROACH_M = 100 * FT;       // heads-up this far before the token
+let voiceOn = localStorage.getItem('cl_voice') !== 'off';
+const fmtDist = m => m < 0.1*MI ? `${Math.round(m/FT/10)*10} ft` : `${(m/MI).toFixed(m < 10*MI ? 1 : 0)} mi`;
+const COOLDOWN_MS      = 12 * 60 * 60 * 1000;
+const DEFAULT_CENTER   = [-95.3698, 29.7604]; // Houston
+const COLORS = { MR: '#F97316', MMR: '#A855F7', SR: '#EAB308' };
+const TYPE_NAMES = { MR: 'Main Road', MMR: 'Mini Main Road', SR: 'Secret Road' };
+const REASONS = {
+  not_subscribed: 'Subscribe to collect tokens',
+  cooldown: 'Already collected — try again in 12 h',
+  too_far: 'Get closer to the token',
+  low_accuracy: 'GPS signal too weak right now',
+  node_empty: 'This token is out of stock',
+  node_inactive: 'This token is no longer active',
+  too_fast: 'Slow down — collecting too quickly',
+  impossible_travel: 'Location jump detected — collection blocked',
+  daily_cap: 'Daily collection limit reached',
+  shared_device: 'This device is linked to too many accounts',
+  banned: 'This account has been suspended',
+  no_profile: 'Account not set up — sign out and back in',
+};
+
+/* ========================================================================= */
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: 'cl_sb' }
+});
+
+let session = null, profile = null;
+let map = null, geolocate = null, markers = {};
+let nodes = [];
+let watchId = null, wakeLock = null, lastPos = null;
+let localCooldown = {};          // nodeId -> timestamp when it frees up
+let inFlight = new Set();        // nodes currently being collected
+let deviceId = localStorage.getItem('cl_device');
+if (!deviceId) { deviceId = crypto.randomUUID(); localStorage.setItem('cl_device', deviceId); }
+try { localCooldown = JSON.parse(localStorage.getItem('cl_cool') || '{}'); } catch (e) {}
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+/* ---------------- Boot ---------------- */
+(async function boot() {
+  const { data } = await sb.auth.getSession();
+  session = data.session;
+  sb.auth.onAuthStateChange((evt, s) => {
+    session = s;
+    if (evt === 'SIGNED_OUT') showAuth();
+    if (evt === 'PASSWORD_RECOVERY') { authTab('in'); authMsg('Signed in via recovery link. Use Profile → Change password.', 'ok'); }
+  });
+  if (session) await enterApp(); else showAuth();
+})();
+
+function showAuth() { $('auth').classList.remove('hidden'); $('app').classList.add('hidden'); stopTracking(); }
+function authTab(t) {
+  $('tab-in').classList.toggle('active', t === 'in'); $('tab-up').classList.toggle('active', t === 'up');
+  $('form-in').classList.toggle('hidden', t !== 'in'); $('form-up').classList.toggle('hidden', t !== 'up');
+  authMsg('');
+}
+function authMsg(text, kind) { const m = $('auth-msg'); m.textContent = text; m.className = 'msg' + (kind ? ' ' + kind : ''); }
+
+async function signIn(e) {
+  e.preventDefault(); authMsg('');
+  const btn = $('in-btn'); btn.disabled = true; btn.textContent = 'Signing in…';
+  const { error } = await sb.auth.signInWithPassword({ email: $('in-email').value.trim(), password: $('in-pass').value });
+  btn.disabled = false; btn.textContent = 'Sign In';
+  if (error) return authMsg(error.message, 'err');
+  await enterApp();
+  return false;
+}
+
+async function signUp(e) {
+  e.preventDefault(); authMsg('');
+  const name = $('up-name').value.trim(), email = $('up-email').value.trim(), pass = $('up-pass').value, zip = $('up-zip').value.trim();
+  if (!/^\d{5}$/.test(zip)) return authMsg('Enter a 5-digit zip code.', 'err');
+  const btn = $('up-btn'); btn.disabled = true; btn.textContent = 'Creating…';
+  const { data, error } = await sb.auth.signUp({ email, password: pass, options: { data: { full_name: name, zip_code: zip } } });
+  btn.disabled = false; btn.textContent = 'Create Account';
+  if (error) return authMsg(error.message, 'err');
+  if (!data.session) return authMsg('Check your email to confirm your account, then sign in.', 'ok');
+  // profile row is created by the handle_new_user trigger; fill in the extras
+  await sb.from('users').update({ full_name: name, zip_code: zip }).eq('id', data.user.id);
+  await enterApp();
+  return false;
+}
+
+async function forgotPassword() {
+  const email = $('in-email').value.trim();
+  if (!email) return authMsg('Type your email above first, then tap Forgot password.', 'err');
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+  authMsg(error ? error.message : 'Password reset email sent.', error ? 'err' : 'ok');
+}
+
+async function signOut() { closeSheet(); await sb.auth.signOut(); showAuth(); }
+
+/* ---------------- App ---------------- */
+async function enterApp() {
+  $('auth').classList.add('hidden'); $('app').classList.remove('hidden');
+  await loadProfile();
+  if (!map) initMap();
+  await Promise.all([loadSettings(), loadCooldowns()]);
+  await loadNodes();
+  startTracking(false);
+  setInterval(async () => { await loadSettings(); await loadCooldowns(); await loadNodes(); }, 2 * 60 * 1000);
+}
+
+async function loadSettings() {
+  const { data } = await sb.from('app_settings').select('value').eq('key', 'collect_radius_m').maybeSingle();
+  const v = data ? parseFloat(data.value) : NaN;
+  if (v > 0) COLLECT_RADIUS_M = v;
+}
+async function loadCooldowns() {
+  // server is the truth; a cooldown the admin wiped disappears here on the next refresh
+  const { data, error } = await sb.from('user_node_cooldowns').select('node_id,next_available_at').eq('user_id', session.user.id);
+  if (error) return;
+  const fresh = {};
+  (data || []).forEach(r => { const t = new Date(r.next_available_at).getTime(); if (t > Date.now()) fresh[r.node_id] = t; });
+  // keep short local back-offs (< 5 min) that are not real cooldowns
+  Object.entries(localCooldown).forEach(([id, t]) => { if (t > Date.now() && t - Date.now() < 5 * 60 * 1000 && !fresh[id]) fresh[id] = t; });
+  localCooldown = fresh; localStorage.setItem('cl_cool', JSON.stringify(localCooldown));
+  drawMarkers();
+}
+async function loadProfile() {
+  const uid = session?.user?.id; if (!uid) return;
+  const { data } = await sb.from('users').select('full_name,email,zip_code,total_points,remaining_points,subscription_status,subscription_end,is_banned,created_at').eq('id', uid).maybeSingle();
+  profile = data || { total_points: 0, remaining_points: 0, subscription_status: 'inactive' };
+  renderPoints();
+}
+const isSubscribed = () => ['subscribed','active'].includes(profile?.subscription_status);
+
+function renderPoints() {
+  const total = profile?.total_points || 0, rem = profile?.remaining_points || 0;
+  $('pts').textContent = `${total} pts`;
+  const p = rem % 100;
+  $('prog').style.width = `${Math.min(100, rem >= 100 ? 100 : p)}%`;
+  $('to-next').textContent = rem >= 100 ? `${Math.floor(rem/100)} reward${rem>=200?'s':''} ready` : `${100 - p} pts to next reward`;
+  $('sub-banner').classList.toggle('hidden', isSubscribed());
+}
+
+function initMap() {
+  mapboxgl.accessToken = MAPBOX_TOKEN;
+  map = new mapboxgl.Map({ container: 'map', style: 'mapbox://styles/mapbox/navigation-night-v1', center: DEFAULT_CENTER, zoom: 12, attributionControl: true });
+  geolocate = new mapboxgl.GeolocateControl({ positionOptions: { enableHighAccuracy: true }, trackUserLocation: true, showUserHeading: true, showAccuracyCircle: false, fitBoundsOptions: { maxZoom: 15 } });
+  map.addControl(geolocate, 'bottom-right');
+  map.on('load', () => { try { geolocate.trigger(); } catch (e) {} });
+  map.on('error', e => console.warn('map error', e?.error?.message));
+}
+
+async function loadNodes() {
+  const { data, error } = await sb.from('token_nodes')
+    .select('id,token_type,point_value,latitude,longitude,remaining,is_active,campaign_id,campaigns(business_name,business_address)')
+    .eq('is_active', true).gt('remaining', 0);
+  if (error) { console.warn(error); return; }
+  nodes = (data || []).map(n => ({ ...n, lat: +n.latitude, lng: +n.longitude }));
+  $('near-count').textContent = `${nodes.length} token${nodes.length === 1 ? '' : 's'} on map`;
+  drawMarkers();
+}
+
+function drawMarkers() {
+  const seen = new Set();
+  nodes.forEach(n => {
+    seen.add(n.id);
+    if (!markers[n.id]) {
+      const el = document.createElement('div');
+      el.className = 'tok';
+      el.style.background = COLORS[n.token_type] || '#00D4FF';
+      el.style.boxShadow = `0 0 14px ${COLORS[n.token_type] || '#00D4FF'}`;
+      el.textContent = `${n.point_value}`;
+      el.addEventListener('click', () => openSheet('token', n));
+      markers[n.id] = new mapboxgl.Marker({ element: el }).setLngLat([n.lng, n.lat]).addTo(map);
+    }
+    markers[n.id].getElement().classList.toggle('cool', realCooldown(n.id));
+  });
+  Object.keys(markers).forEach(id => { if (!seen.has(id)) { markers[id].remove(); delete markers[id]; } });
+}
+
+/* ---------------- Tracking + auto-collect ---------------- */
+function setPill(kind, text) { const p = $('track-pill'); p.className = 'pill ' + kind; $('track-text').textContent = text; }
+
+async function startTracking(fromButton) {
+  if (!navigator.geolocation) { setPill('off', 'No GPS'); return; }
+  if (watchId !== null) return;
+  if (!fromButton && navigator.permissions) {
+    try {
+      const st = await navigator.permissions.query({ name: 'geolocation' });
+      if (st.state === 'denied') { onLocDenied(); return; }
+    } catch (e) {}
+  }
+  $('loc-banner').classList.add('hidden');
+  setPill('idle', 'Locating…');
+  watchId = navigator.geolocation.watchPosition(onPos, onPosErr, { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
+  requestWakeLock();
+}
+function stopTracking() {
+  if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+  if (wakeLock) { try { wakeLock.release(); } catch (e) {} wakeLock = null; }
+}
+function onLocDenied() {
+  setPill('off', 'Location off');
+  const ua = navigator.userAgent;
+  $('loc-help').textContent = /iPhone|iPad/.test(ua)
+    ? 'iPhone: Settings → Privacy → Location Services → Safari Websites → While Using. Then reload.'
+    : 'Tap the lock icon in the address bar → Permissions → Location → Allow. Then reload.';
+  $('loc-banner').classList.remove('hidden');
+}
+function onPosErr(err) {
+  if (err.code === 1) { stopTracking(); onLocDenied(); }
+  else setPill('idle', 'Waiting for GPS…');
+}
+
+function onPos(pos) {
+  const { latitude: lat, longitude: lng, accuracy, speed } = pos.coords;
+  lastPos = { lat, lng, accuracy, speed, t: Date.now() };
+  const mph = speed ? Math.round(speed * 2.237) : null;
+  updateNavLive(lat, lng, pos.coords.heading);
+  checkApproach(lat, lng, pos.coords.heading);
+  if (nav && mph > 3) map.easeTo({ center: [lng, lat], zoom: 16.5, pitch: 50, bearing: pos.coords.heading || 0, duration: 900 });
+  setPill('live', isSubscribed() ? (mph ? `Collecting · ${mph} mph` : 'Collecting') : 'Viewing');
+
+  const prev = prevPos; prevPos = { lat, lng, accuracy, t: Date.now() };
+
+  nodes.forEach(n => {
+    const d = distM(lat, lng, n.lat, n.lng);
+    const el = markers[n.id]?.getElement();
+    if (el) el.classList.toggle('near', d <= 150);
+    if (onCooldown(n.id) || inFlight.has(n.id)) return;
+    if (d <= COLLECT_RADIUS_M) { tryCollect(n, lat, lng, accuracy); return; }
+    // fast driving: did the path between the last two GPS fixes pass through the circle?
+    if (prev && Date.now() - prev.t < 6000) {
+      const c = closestPointOnSegment(prev.lat, prev.lng, lat, lng, n.lat, n.lng);
+      if (c.d <= COLLECT_RADIUS_M) tryCollect(n, c.lat, c.lng, Math.max(accuracy || 0, prev.accuracy || 0));
+    }
+  });
+}
+let prevPos = null;
+// closest point to P on the segment A->B, in a flat local approximation (fine for < 1 km)
+function closestPointOnSegment(aLat, aLng, bLat, bLng, pLat, pLng) {
+  const kx = Math.cos(pLat * Math.PI / 180) * 111320, ky = 110540;
+  const ax = (aLng - pLng) * kx, ay = (aLat - pLat) * ky, bx = (bLng - pLng) * kx, by = (bLat - pLat) * ky;
+  const dx = bx - ax, dy = by - ay, len2 = dx*dx + dy*dy;
+  const t = len2 ? Math.max(0, Math.min(1, -(ax*dx + ay*dy) / len2)) : 0;
+  const cx = ax + t*dx, cy = ay + t*dy;
+  return { d: Math.hypot(cx, cy), lat: pLat + cy / ky, lng: pLng + cx / kx };
+}
+
+function onCooldown(id) { return (localCooldown[id] || 0) > Date.now(); }
+function realCooldown(id) { return (localCooldown[id] || 0) > Date.now() + 5 * 60 * 1000; }  // a true 12 h cooldown, not a short retry pause
+function setCooldown(id, ms = COOLDOWN_MS) { localCooldown[id] = Date.now() + ms; localStorage.setItem('cl_cool', JSON.stringify(localCooldown)); }
+
+async function tryCollect(n, lat, lng, accuracy) {
+  if (!isSubscribed()) return;              // server would reject anyway; skip the round trip
+  inFlight.add(n.id);
+  try {
+    const { data, error } = await sb.rpc('collect_token', { p_node_id: n.id, p_lat: lat, p_lng: lng, p_accuracy: accuracy, p_device_id: deviceId });
+    if (error) { console.warn('collect error', error); toast('err', '⚠️', 'Could not collect', error.message); setCooldown(n.id, 60_000); return; }
+    if (data?.ok) {
+      setCooldown(n.id);
+      profile.total_points = data.total_points;
+      profile.remaining_points = (profile.remaining_points || 0) + data.points;
+      renderPoints();
+      n.remaining = (n.remaining || 1) - 1;
+      if (n.remaining <= 0) { nodes = nodes.filter(x => x.id !== n.id); }
+      drawMarkers();
+      vibrate([60, 40, 60]);
+      showArrive(n, data.points);
+    } else {
+      const r = data?.reason || 'unknown';
+      if (r === 'cooldown') setCooldown(n.id);
+      else if (r === 'node_empty' || r === 'node_inactive') { nodes = nodes.filter(x => x.id !== n.id); drawMarkers(); }
+      else if (r === 'not_subscribed') { profile.subscription_status = 'inactive'; renderPoints(); }
+      else if (r === 'banned') { toast('err', '🚫', 'Account suspended', 'Contact support.'); stopTracking(); setPill('off', 'Suspended'); return; }
+      else if (r === 'too_far' || r === 'low_accuracy') setCooldown(n.id, 8_000);  // GPS jitter: retry soon
+      else setCooldown(n.id, 90_000);       // back off a bit on other rejections
+      if (r !== 'cooldown' && r !== 'too_far') toast('err', '⚠️', REASONS[r] || 'Not collected', r);
+    }
+  } finally { inFlight.delete(n.id); }
+}
+
+async function requestWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } catch (e) {}
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && watchId !== null && !wakeLock) requestWakeLock(); });
+
+function recenter() {
+  if (lastPos) map.flyTo({ center: [lastPos.lng, lastPos.lat], zoom: 15, duration: 800 });
+  else try { geolocate.trigger(); } catch (e) {}
+}
+function distM(lat1, lon1, lat2, lon2) {
+  const R = 6371000, toR = d => d * Math.PI / 180;
+  const dLat = toR(lat2 - lat1), dLon = toR(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toR(lat1)) * Math.cos(toR(lat2)) * Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+function vibrate(p) { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} }
+function openStripe() {
+  const url = STRIPE_LINK + (session?.user?.email ? `?prefilled_email=${encodeURIComponent(session.user.email)}&client_reference_id=${session.user.id}` : '');
+  window.open(url, '_blank');
+}
+
+/* ---------------- In-app navigation ---------------- */
+let nav = null, navTimer = null;
+async function startNav(nodeId) {
+  const n = nodes.find(x => x.id === nodeId); if (!n) return;
+  closeSheet();
+  const d0 = lastPos ? distM(lastPos.lat, lastPos.lng, n.lat, n.lng) : Infinity;
+  const slow = !lastPos || !lastPos.speed || lastPos.speed < 2.2;   // under ~5 mph
+  nav = { node: n, lastRoute: 0, mode: (d0 < 150 && slow) ? 'walking' : 'driving' };
+  setNavModeLabel();
+  $('navbar').classList.add('on');
+  $('n-main').textContent = 'Getting route…'; $('n-sub').textContent = n.campaigns?.business_name || '';
+  if (!map.getSource('route')) {
+    map.addSource('route', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({ id: 'route-line', type: 'line', source: 'route', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#00D4FF', 'line-width': 6, 'line-opacity': 0.85 } });
+  }
+  await refreshRoute(true);
+  navTimer = setInterval(() => refreshRoute(false), 8000);
+}
+function setNavModeLabel() { $('n-mode').textContent = nav?.mode === 'walking' ? '🚶 Walk' : '🚗 Drive'; }
+function toggleNavMode() { if (!nav) return; nav.mode = nav.mode === 'walking' ? 'driving' : 'walking'; setNavModeLabel(); refreshRoute(true); }
+function stopNav() {
+  nav = null; if (navTimer) { clearInterval(navTimer); navTimer = null; }
+  $('navbar').classList.remove('on');
+  if (map.getSource('route')) map.getSource('route').setData({ type: 'FeatureCollection', features: [] });
+  map.easeTo({ pitch: 0, bearing: 0 });
+}
+async function refreshRoute(fit) {
+  if (!nav) return;
+  if (!lastPos) { $('n-main').textContent = 'Waiting for GPS…'; return; }
+  const { lat, lng } = lastPos, n = nav.node;
+  try {
+    const profile = nav.mode === 'walking' ? 'walking' : 'driving-traffic';
+    const url = `https://api.mapbox.com/directions/v5/mapbox/${profile}/${lng},${lat};${n.lng},${n.lat}?geometries=geojson&overview=full&steps=true&radiuses=60;60&access_token=${MAPBOX_TOKEN}`;
+    const r = await (await fetch(url)).json();
+    const route = r.routes?.[0]; if (!route) { $('n-main').textContent = 'No route found'; return; }
+    map.getSource('route').setData({ type: 'Feature', geometry: route.geometry });
+    const step = route.legs?.[0]?.steps?.[0];
+    const next = route.legs?.[0]?.steps?.[1];
+    $('n-main').textContent = `${fmtDist(route.distance)} · ${Math.max(1, Math.round(route.duration/60))} min`;
+    $('n-sub').textContent = (next?.maneuver?.instruction || step?.maneuver?.instruction || '').replace(/\.$/, '') + (next ? ` in ${fmtDist(step.distance)}` : '');
+    if (fit) { const b = new mapboxgl.LngLatBounds(); route.geometry.coordinates.forEach(c => b.extend(c)); map.fitBounds(b, { padding: { top: 180, bottom: 220, left: 40, right: 40 }, maxZoom: 16 }); }
+  } catch (e) { $('n-main').textContent = 'Route unavailable'; }
+}
+function updateNavLive(lat, lng, heading) {
+  if (!nav) return;
+  const n = nav.node, d = distM(lat, lng, n.lat, n.lng);
+  const brg = bearing(lat, lng, n.lat, n.lng);
+  const rel = heading == null ? brg : ((brg - heading) + 360) % 360;
+  $('n-arrow').style.transform = `rotate(${rel}deg)`;
+  if (d <= 300) $('n-sub').textContent = `${fmtDist(d)} to token — it will collect automatically`;
+  if (onCooldown(n.id) && localCooldown[n.id] > Date.now() + 60*60*1000) { toast('info', '🧭', 'Arrived', 'Token collected — navigation ended'); stopNav(); }
+}
+function bearing(lat1, lon1, lat2, lon2) {
+  const toR = d => d*Math.PI/180, toD = r => r*180/Math.PI;
+  const y = Math.sin(toR(lon2-lon1)) * Math.cos(toR(lat2));
+  const x = Math.cos(toR(lat1))*Math.sin(toR(lat2)) - Math.sin(toR(lat1))*Math.cos(toR(lat2))*Math.cos(toR(lon2-lon1));
+  return (toD(Math.atan2(y, x)) + 360) % 360;
+}
+
+/* ---------------- Voice ---------------- */
+function say(text) {
+  if (!voiceOn || !('speechSynthesis' in window)) return;
+  try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.rate = 1.0; u.lang = 'en-US'; speechSynthesis.speak(u); } catch (e) {}
+}
+function toggleVoice() {
+  voiceOn = !voiceOn; localStorage.setItem('cl_voice', voiceOn ? 'on' : 'off');
+  $('voice-fab').textContent = voiceOn ? '🔊' : '🔇';
+  if (voiceOn) say('Voice on'); else speechSynthesis.cancel();
+}
+$('voice-fab').textContent = voiceOn ? '🔊' : '🔇';
+// first user tap unlocks speech on iOS/Android
+document.addEventListener('pointerdown', function unlock() { try { speechSynthesis.speak(new SpeechSynthesisUtterance('')); } catch (e) {} document.removeEventListener('pointerdown', unlock); }, { once: true });
+
+/* ---------------- Approaching ---------------- */
+const announced = {};   // nodeId -> timestamp of last heads-up
+function sideOf(lat, lng, heading, tLat, tLng) {
+  if (heading == null) return '';
+  const rel = ((bearing(lat, lng, tLat, tLng) - heading) + 360) % 360;
+  return rel > 20 && rel < 160 ? 'on your right' : rel > 200 && rel < 340 ? 'on your left' : 'straight ahead';
+}
+function checkApproach(lat, lng, heading) {
+  let best = null, bestD = Infinity;
+  nodes.forEach(n => { if (realCooldown(n.id)) return; const d = distM(lat, lng, n.lat, n.lng); if (d < bestD) { bestD = d; best = n; } });
+  const el = $('approach');
+  if (!best || bestD > APPROACH_M || bestD <= COLLECT_RADIUS_M) { el.classList.remove('on'); Object.values(markers).forEach(m => m.getElement().classList.remove('pulse')); return; }
+  const name = best.campaigns?.business_name || 'Token';
+  const side = sideOf(lat, lng, heading, best.lat, best.lng);
+  $('p-main').textContent = `${name} — ${fmtDist(bestD)} ${side}`;
+  $('p-sub').textContent = `+${best.point_value} pts · ${best.campaigns?.business_address || ''}`;
+  el.classList.add('on');
+  markers[best.id]?.getElement().classList.add('pulse');
+  if (!announced[best.id] || Date.now() - announced[best.id] > 10 * 60 * 1000) {
+    announced[best.id] = Date.now();
+    vibrate([40]);
+    say(`Token ahead. ${name}, ${fmtDist(bestD)} ${side}.`);
+  }
+}
+
+/* ---------------- Arrival card ---------------- */
+let arriveTimer = null;
+function showArrive(n, pts) {
+  $('a-pts').textContent = `+${pts}`;
+  $('a-name').textContent = n.campaigns?.business_name || 'Token collected';
+  $('a-addr').textContent = n.campaigns?.business_address || '';
+  $('a-here').textContent = `You're here — ${n.campaigns?.business_name || 'the business'} is right beside you`;
+  $('a-offer').innerHTML = `<b>${TYPE_NAMES[n.token_type] || n.token_type} token</b> · earn 100 pts for a reward you can redeem at participating businesses. Open <b>Rewards</b> to see your QR code.`;
+  $('arrive').classList.add('on');
+  $('approach').classList.remove('on');
+  map.flyTo({ center: [n.lng, n.lat], zoom: 17, pitch: 0, duration: 900 });
+  say(`${n.campaigns?.business_name || 'Token'} collected. Plus ${pts} points. The business is right beside you.`);
+  clearTimeout(arriveTimer); arriveTimer = setTimeout(hideArrive, 9000);
+}
+function hideArrive() { $('arrive').classList.remove('on'); }
+
+/* ---------------- Toasts ---------------- */
+function toast(kind, icon, main, sub) {
+  const el = document.createElement('div');
+  el.className = `toast ${kind}`;
+  el.innerHTML = `<div class="t-icon">${icon}</div><div><div class="t-main">${esc(main)}</div><div class="t-sub">${esc(sub || '')}</div></div>`;
+  $('toasts').appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity 0.4s'; setTimeout(() => el.remove(), 400); }, 4500);
+}
+
+/* ---------------- Sheets ---------------- */
+function setNav(which) { ['map','rewards','history','profile'].forEach(k => $('nav-' + k).classList.toggle('active', k === which)); }
+function closeSheet() { $('sheet-root').innerHTML = ''; setNav('map'); }
+function sheet(title, subtitle, bodyHtml) {
+  $('sheet-root').innerHTML = `<div class="sheet-bg" onclick="if(event.target===this)closeSheet()">
+    <div class="sheet"><h2>${esc(title)}<button onclick="closeSheet()">✕</button></h2>
+    ${subtitle ? `<p class="sub">${esc(subtitle)}</p>` : ''}<div id="sheet-body">${bodyHtml}</div></div></div>`;
+}
+
+async function openSheet(which, arg) {
+  if (which === 'token') return sheetToken(arg);
+  setNav(which);
+  if (which === 'rewards') return sheetRewards();
+  if (which === 'history') return sheetHistory();
+  if (which === 'profile') return sheetProfile();
+}
+
+function sheetToken(n) {
+  const c = COLORS[n.token_type] || '#00D4FF';
+  const d = lastPos ? Math.round(distM(lastPos.lat, lastPos.lng, n.lat, n.lng)) : null;
+  const cool = realCooldown(n.id);
+  const status = cool ? `⏳ Collected — available again in ${Math.ceil((localCooldown[n.id]-Date.now())/3600000)} h`
+               : !isSubscribed() ? '🔒 Subscribe to collect this token'
+               : d == null ? '📍 Waiting for your location…'
+               : d <= COLLECT_RADIUS_M ? '✅ You are here — collecting…'
+               : `🚗 Drive within ${fmtDist(COLLECT_RADIUS_M)} to collect automatically — you are ${fmtDist(d)} away`;
+  sheet(n.campaigns?.business_name || 'Token', n.campaigns?.business_address || '', `
+    <div class="stat-grid">
+      <div class="stat"><b style="color:${c}">+${n.point_value}</b><span>points</span></div>
+      <div class="stat"><b style="color:${c}">${esc(n.token_type)}</b><span>${esc(TYPE_NAMES[n.token_type] || '')}</span></div>
+    </div>
+    <div class="reward-box"><p style="margin:0;color:var(--text)">${status}</p></div>
+    ${!isSubscribed() ? `<button class="btn btn-primary" onclick="openStripe()">Subscribe — $10/mo</button>` : ''}
+    <button class="btn btn-primary" style="margin-top:10px" onclick="startNav('${n.id}')">🧭 Navigate here</button>
+    <button class="btn btn-ghost" style="margin-top:10px" onclick="map.flyTo({center:[${n.lng},${n.lat}],zoom:16});closeSheet()">Show on map</button>
+    <p class="fine">Keep ChainLane open and the screen on — the token is collected automatically as you pass it. <a href="https://www.google.com/maps/dir/?api=1&destination=${n.lat},${n.lng}&travelmode=driving" target="_blank">Open in Google Maps</a> instead if you prefer, but collection pauses while this page is in the background.</p>`);
+}
+
+async function sheetRewards() {
+  sheet('Rewards', 'Points are kept per business and never expire. Redeem at a business to turn your points there into a reward.', '<div class="empty">Loading…</div>');
+  const [{ data: bals }, { data: rewards }, { data: reds }] = await Promise.all([
+    sb.from('business_balances').select('*').eq('user_id', session.user.id).order('balance', { ascending: false }),
+    sb.from('rewards').select('id,business_id,reward_name,reward_cost_points,description').eq('is_active', true),
+    sb.from('redemptions').select('id,status,qr_code_value,points_deducted,created_at,redeemed_at,business_id,reward_id').eq('user_id', session.user.id).order('created_at', { ascending: false }).limit(30)
+  ]);
+  const defaultReward = (rewards || []).find(r => !r.business_id) || { reward_name: 'Reward', reward_cost_points: 100 };
+  const rewardFor = bid => (rewards || []).find(r => r.business_id === bid) || defaultReward;
+  const nameFor = bid => (bals || []).find(b => b.business_id === bid)?.business_name || 'Business';
+  const pending = (reds || []).filter(r => r.status === 'pending');
+  const used = (reds || []).filter(r => r.status !== 'pending');
+  const total = (bals || []).reduce((s, b) => s + b.balance, 0);
+  let html = `<div class="stat-grid"><div class="stat"><b>${total}</b><span>points available</span></div><div class="stat"><b>${pending.length}</b><span>rewards ready</span></div></div>`;
+  if (pending.length) {
+    html += `<h3 style="font-size:14px;margin:6px 0 8px">Show this at the counter</h3>` + pending.map(r => {
+      const rw = (rewards || []).find(x => x.id === r.reward_id) || defaultReward;
+      return `<div class="reward-box"><h3>${esc(nameFor(r.business_id))}</h3><p>${esc(rw.reward_name)} · claimed ${fmtDate(r.created_at)}</p>
+        <div class="qr"><canvas id="qr-${r.id}"></canvas><code>${esc(r.qr_code_value)}</code></div>
+        <p class="fine" style="margin:0">The business scans this once. Keep it until you use it.</p></div>`; }).join('');
+  }
+  html += `<h3 style="font-size:14px;margin:14px 0 8px">Your points by business</h3>`;
+  if (!(bals || []).length) html += '<div class="empty">No points yet. Subscribe and drive past a token to start earning.</div>';
+  (bals || []).forEach(b => {
+    const rw = rewardFor(b.business_id), can = b.balance >= rw.reward_cost_points, pct = Math.min(100, Math.round(b.balance / rw.reward_cost_points * 100));
+    html += `<div class="reward-box"><h3>${esc(b.business_name)}</h3><p>${esc(b.business_address || '')}</p>
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px"><span><b style="color:var(--text)">${b.balance}</b> pts here</span><span style="color:var(--muted)">${rw.reward_cost_points} needed</span></div>
+      <div class="progress"><div style="width:${pct}%"></div></div>
+      <p style="margin:8px 0 10px">${esc(rw.reward_name)}${rw.description ? ' — ' + esc(rw.description) : ''}</p>
+      <button class="btn btn-primary" ${can ? '' : 'disabled'} onclick="claimReward('${b.business_id}', '${esc(b.business_name)}', ${b.balance})">${can ? 'Redeem here' : `${rw.reward_cost_points - b.balance} more pts needed`}</button></div>`;
+  });
+  if (used.length) html += `<h3 style="font-size:14px;margin:14px 0 6px">Used</h3>` + used.map(r => `<div class="row"><div>${esc(nameFor(r.business_id))}<div class="r-sub">${r.points_deducted} pts · ${fmtDate(r.redeemed_at || r.created_at)}</div></div><span class="badge" style="background:rgba(34,197,94,0.15);color:var(--success)">Used</span></div>`).join('');
+  $('sheet-body').innerHTML = html;
+  pending.forEach(r => { const cv = $('qr-' + r.id); if (cv) QRCode.toCanvas(cv, r.qr_code_value, { width: 200, margin: 1 }); });
+}
+
+async function claimReward(businessId, businessName, balance) {
+  if (!confirm(`Redeem at ${businessName}? This uses all ${balance} of your points there. Points at other businesses are not affected.`)) return;
+  const { data, error } = await sb.rpc('redeem_reward', { p_business_id: businessId });
+  if (error) return toast('err', '⚠️', 'Could not redeem', error.message);
+  if (!data?.ok) return toast('err', '⚠️', 'Could not redeem', data?.reason === 'not_enough_points' ? `Need ${data.need}, have ${data.have}` : (data?.reason || ''));
+  profile.remaining_points = Math.max(0, (profile.remaining_points || 0) - data.points_deducted);
+  renderPoints(); vibrate([80]);
+  say(`Reward ready at ${businessName}. Show the QR code at the counter.`);
+  toast('earn', '🎁', `${data.reward} at ${businessName}`, 'QR code is ready — show it at the counter');
+  sheetRewards();
+}
+
+async function sheetHistory() {
+  sheet('History', 'Your last 50 collections.', '<div class="empty">Loading…</div>');
+  const { data } = await sb.from('points_ledger').select('points_awarded,token_type,collected_at,campaigns(business_name)')
+    .eq('user_id', session.user.id).eq('status', 'awarded').order('collected_at', { ascending: false }).limit(50);
+  if (!data?.length) { $('sheet-body').innerHTML = '<div class="empty">No collections yet. Subscribe and drive past a token to earn your first points.</div>'; return; }
+  $('sheet-body').innerHTML = data.map(r => `
+    <div class="row">
+      <div>${esc(r.campaigns?.business_name || 'Token')}<div class="r-sub">${esc(TYPE_NAMES[r.token_type] || r.token_type)} · ${fmtDate(r.collected_at)}</div></div>
+      <span class="r-pts" style="color:${COLORS[r.token_type] || '#00D4FF'}">+${r.points_awarded}</span>
+    </div>`).join('');
+}
+
+function sheetProfile() {
+  const subbed = isSubscribed();
+  sheet(profile?.full_name || 'Profile', profile?.email || session.user.email, `
+    <div class="stat-grid">
+      <div class="stat"><b>${profile?.total_points || 0}</b><span>lifetime points</span></div>
+      <div class="stat"><b style="color:${subbed ? 'var(--success)' : 'var(--muted)'}">${subbed ? 'Active' : 'None'}</b><span>subscription</span></div>
+    </div>
+    <div class="row"><span>Zip code</span><span>${esc(profile?.zip_code || '—')}</span></div>
+    <div class="row"><span>Member since</span><span>${fmtDate(profile?.created_at)}</span></div>
+    <div class="row"><span>Device</span><span style="font-size:11px;color:var(--muted)">${deviceId.slice(0, 8)}</span></div>
+    ${subbed ? '' : `<button class="btn btn-primary" style="margin-top:14px" onclick="openStripe()">Subscribe — $10/mo</button>`}
+    <button class="btn btn-ghost" style="margin-top:10px" onclick="changePassword()">Change password</button>
+    <button class="btn btn-ghost" style="margin-top:10px" onclick="refreshAll()">Refresh data</button>
+    <button class="btn btn-ghost" style="margin-top:10px;color:var(--danger)" onclick="signOut()">Sign out</button>
+    <p class="fine">Tip: install ChainLane to your home screen (Share → Add to Home Screen) and keep the screen on while driving.</p>`);
+}
+async function changePassword() {
+  const p = prompt('New password (6+ characters):'); if (!p) return;
+  const { error } = await sb.auth.updateUser({ password: p });
+  toast(error ? 'err' : 'info', error ? '⚠️' : '🔑', error ? 'Not changed' : 'Password updated', error?.message || '');
+}
+async function refreshAll() { await loadProfile(); await loadSettings(); await loadCooldowns(); await loadNodes(); toast('info', '🔄', 'Refreshed', ''); closeSheet(); }
+function fmtDate(s) { if (!s) return '—'; const d = new Date(s); return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }); }
+
+/* service worker */
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+</script>
+</body>
+</html>
