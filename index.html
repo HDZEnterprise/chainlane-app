@@ -288,6 +288,7 @@ let map = null, geolocate = null, markers = {};
 let nodes = [];
 let watchId = null, wakeLock = null, lastPos = null;
 let localCooldown = {};          // nodeId -> timestamp when it frees up
+let balances = [], rewardsList = [], focusBiz = null;   // per-business points; focusBiz = business the top bar is showing
 let inFlight = new Set();        // nodes currently being collected
 let deviceId = localStorage.getItem('cl_device');
 if (!deviceId) { deviceId = crypto.randomUUID(); localStorage.setItem('cl_device', deviceId); }
@@ -377,8 +378,20 @@ async function loadCooldowns() {
   localCooldown = fresh; localStorage.setItem('cl_cool', JSON.stringify(localCooldown));
   drawMarkers();
 }
+async function loadBalances() {
+  const uid = session?.user?.id; if (!uid) return;
+  const [{ data: b }, { data: r }] = await Promise.all([
+    sb.from('business_balances').select('business_id,business_name,balance').eq('user_id', uid),
+    sb.from('rewards').select('business_id,reward_name,reward_cost_points').eq('is_active', true)
+  ]);
+  balances = b || []; rewardsList = r || [];
+  renderPoints();
+}
+function rewardFor(bid) { return rewardsList.find(r => r.business_id === bid) || rewardsList.find(r => !r.business_id) || { reward_name: 'Reward', reward_cost_points: 100 }; }
+function setFocus(bid, name) { if (!bid) return; focusBiz = { id: bid, name }; renderPoints(); }
 async function loadProfile() {
   const uid = session?.user?.id; if (!uid) return;
+  await loadBalances();
   const { data } = await sb.from('users').select('full_name,email,zip_code,total_points,remaining_points,subscription_status,subscription_end,is_banned,created_at').eq('id', uid).maybeSingle();
   profile = data || { total_points: 0, remaining_points: 0, subscription_status: 'inactive' };
   renderPoints();
@@ -386,13 +399,23 @@ async function loadProfile() {
 const isSubscribed = () => ['subscribed','active'].includes(profile?.subscription_status);
 
 function renderPoints() {
-  const total = profile?.total_points || 0, rem = profile?.remaining_points || 0;
-  $('pts').textContent = `${total} pts`;
-  const p = rem % 100;
-  $('prog').style.width = `${Math.min(100, rem >= 100 ? 100 : p)}%`;
-  $('to-next').textContent = rem >= 100 ? `${Math.floor(rem/100)} reward${rem>=200?'s':''} ready` : `${100 - p} pts to next reward`;
+  const totalAvail = balances.reduce((s, b) => s + (b.balance || 0), 0);
+  const nBiz = balances.filter(b => b.balance > 0).length;
+  if (focusBiz) {
+    const b = balances.find(x => x.business_id === focusBiz.id);
+    const bal = b ? b.balance : 0, rw = rewardFor(focusBiz.id), cost = rw.reward_cost_points || 100;
+    $('pts').textContent = `${bal} pts`;
+    $('prog').style.width = `${Math.min(100, Math.round(bal / cost * 100))}%`;
+    $('to-next').textContent = bal >= cost ? `${focusBiz.name}: ${rw.reward_name} ready — tap to redeem` : `${focusBiz.name}: ${cost - bal} pts to ${rw.reward_name}`;
+  } else {
+    $('pts').textContent = `${totalAvail} pts`;
+    $('prog').style.width = '0%';
+    $('to-next').textContent = nBiz ? `across ${nBiz} business${nBiz === 1 ? '' : 'es'} — tap to see rewards` : 'drive past a token to start earning';
+  }
   $('sub-banner').classList.toggle('hidden', isSubscribed());
 }
+$('pts').style.cursor = 'pointer'; $('pts').onclick = () => openSheet('rewards');
+$('to-next').style.cursor = 'pointer'; $('to-next').onclick = () => openSheet('rewards');
 
 function initMap() {
   mapboxgl.accessToken = MAPBOX_TOKEN;
@@ -405,7 +428,7 @@ function initMap() {
 
 async function loadNodes() {
   const { data, error } = await sb.from('token_nodes')
-    .select('id,token_type,point_value,latitude,longitude,remaining,is_active,campaign_id,campaigns(business_name,business_address)')
+    .select('id,token_type,point_value,latitude,longitude,remaining,is_active,campaign_id,campaigns(business_id,business_name,business_address)')
     .eq('is_active', true).gt('remaining', 0);
   if (error) { console.warn(error); return; }
   nodes = (data || []).map(n => ({ ...n, lat: +n.latitude, lng: +n.longitude }));
@@ -514,7 +537,8 @@ async function tryCollect(n, lat, lng, accuracy) {
       setCooldown(n.id);
       profile.total_points = data.total_points;
       profile.remaining_points = (profile.remaining_points || 0) + data.points;
-      renderPoints();
+      setFocus(n.campaigns?.business_id, n.campaigns?.business_name);
+      loadBalances();
       n.remaining = (n.remaining || 1) - 1;
       if (n.remaining <= 0) { nodes = nodes.filter(x => x.id !== n.id); }
       drawMarkers();
@@ -563,6 +587,7 @@ async function startNav(nodeId) {
   const d0 = lastPos ? distM(lastPos.lat, lastPos.lng, n.lat, n.lng) : Infinity;
   const slow = !lastPos || !lastPos.speed || lastPos.speed < 2.2;   // under ~5 mph
   nav = { node: n, lastRoute: 0, mode: (d0 < 150 && slow) ? 'walking' : 'driving' };
+  setFocus(n.campaigns?.business_id, n.campaigns?.business_name);
   setNavModeLabel();
   $('navbar').classList.add('on');
   $('n-main').textContent = 'Getting route…'; $('n-sub').textContent = n.campaigns?.business_name || '';
@@ -643,6 +668,7 @@ function checkApproach(lat, lng, heading) {
   const name = best.campaigns?.business_name || 'Token';
   const side = sideOf(lat, lng, heading, best.lat, best.lng);
   $('p-main').textContent = `${name} — ${fmtDist(bestD)} ${side}`;
+  if (!nav) setFocus(best.campaigns?.business_id, name);
   $('p-sub').textContent = `+${best.point_value} pts · ${best.campaigns?.business_address || ''}`;
   el.classList.add('on');
   markers[best.id]?.getElement().classList.add('pulse');
@@ -704,7 +730,9 @@ function sheetToken(n) {
                : d == null ? '📍 Waiting for your location…'
                : d <= COLLECT_RADIUS_M ? '✅ You are here — collecting…'
                : `🚗 Drive within ${fmtDist(COLLECT_RADIUS_M)} to collect automatically — you are ${fmtDist(d)} away`;
+  const bb = balances.find(x => x.business_id === n.campaigns?.business_id), rwb = rewardFor(n.campaigns?.business_id);
   sheet(n.campaigns?.business_name || 'Token', n.campaigns?.business_address || '', `
+    <p class="fine" style="margin:0 0 10px;text-align:left">You have <b style="color:var(--text)">${bb ? bb.balance : 0} pts</b> at this business · ${rwb.reward_cost_points} needed for ${esc(rwb.reward_name)}</p>
     <div class="stat-grid">
       <div class="stat"><b style="color:${c}">+${n.point_value}</b><span>points</span></div>
       <div class="stat"><b style="color:${c}">${esc(n.token_type)}</b><span>${esc(TYPE_NAMES[n.token_type] || '')}</span></div>
@@ -758,7 +786,7 @@ async function claimReward(businessId, businessName, balance) {
   if (error) return toast('err', '⚠️', 'Could not redeem', error.message);
   if (!data?.ok) return toast('err', '⚠️', 'Could not redeem', data?.reason === 'not_enough_points' ? `Need ${data.need}, have ${data.have}` : (data?.reason || ''));
   profile.remaining_points = Math.max(0, (profile.remaining_points || 0) - data.points_deducted);
-  renderPoints(); vibrate([80]);
+  await loadBalances(); vibrate([80]);
   say(`Reward ready at ${businessName}. Show the QR code at the counter.`);
   toast('earn', '🎁', `${data.reward} at ${businessName}`, 'QR code is ready — show it at the counter');
   sheetRewards();
@@ -797,7 +825,7 @@ async function changePassword() {
   const { error } = await sb.auth.updateUser({ password: p });
   toast(error ? 'err' : 'info', error ? '⚠️' : '🔑', error ? 'Not changed' : 'Password updated', error?.message || '');
 }
-async function refreshAll() { await loadProfile(); await loadSettings(); await loadCooldowns(); await loadNodes(); toast('info', '🔄', 'Refreshed', ''); closeSheet(); }
+async function refreshAll() { focusBiz = null; await loadProfile(); await loadSettings(); await loadCooldowns(); await loadNodes(); toast('info', '🔄', 'Refreshed', ''); closeSheet(); }
 function fmtDate(s) { if (!s) return '—'; const d = new Date(s); return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }); }
 
 /* service worker */
