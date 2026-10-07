@@ -16,7 +16,6 @@
   <link href="https://api.mapbox.com/mapbox-gl-js/v3.30.0/mapbox-gl.css" rel="stylesheet" />
   <script src="https://api.mapbox.com/mapbox-gl-js/v3.30.0/mapbox-gl.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 
   <style>
@@ -103,6 +102,22 @@
     .fab { position: absolute; z-index: 10; bottom: calc(72px + var(--safe-bottom)); width: 46px; height: 46px; border-radius: 50%; background: var(--surface); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 4px 14px rgba(0,0,0,0.4); }
     .fab.left { left: 12px; }
     .fab.right { right: 12px; }
+    .puck { width: 46px; height: 46px; display: flex; align-items: center; justify-content: center; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.6)); transition: transform 0.25s linear; }
+    .puck svg { width: 46px; height: 46px; }
+    .puck.off svg path.body { fill: #F97316; }
+    .turn { position: absolute; left: 12px; right: 12px; top: calc(118px + var(--safe-top)); z-index: 14; background: rgba(17,24,39,0.97); border: 1px solid var(--accent); border-radius: 14px; padding: 12px 14px; display: none; align-items: center; gap: 14px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+    .turn.on { display: flex; }
+    .turn .t-ic { font-size: 34px; width: 44px; text-align: center; }
+    .turn .t-dist { font-size: 22px; font-weight: 800; line-height: 1; }
+    .turn .t-ins { font-size: 14px; color: var(--muted); margin-top: 3px; }
+    .turn .t-then { font-size: 11px; color: var(--muted); margin-top: 4px; opacity: 0.8; }
+    .turn.off { border-color: var(--orange); }
+    .routes { display: flex; flex-direction: column; gap: 8px; }
+    .route-opt { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface2); cursor: pointer; }
+    .route-opt.sel { border-color: var(--accent); background: rgba(0,212,255,0.08); }
+    .route-opt .r-time { font-size: 18px; font-weight: 800; }
+    .route-opt .r-sub { font-size: 12px; color: var(--muted); }
+    .route-opt .r-tag { margin-left: auto; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 10px; background: rgba(0,212,255,0.12); color: var(--accent); }
     .navbar { position: absolute; left: 12px; right: 12px; bottom: calc(126px + var(--safe-bottom)); z-index: 15; background: rgba(17,24,39,0.97); border: 1px solid var(--accent); border-radius: 14px; padding: 12px 14px; display: none; align-items: center; gap: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
     .navbar.on { display: flex; }
     .navbar .n-main { font-size: 16px; font-weight: 800; }
@@ -157,7 +172,7 @@
     .reward-box h3 { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
     .reward-box p { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
     .qr { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px; background: #fff; border-radius: 12px; margin: 10px 0; }
-    .qr canvas { display: block; }
+    .qr img { display: block; width: 220px; height: 220px; image-rendering: pixelated; }
     .qr code { color: #000; font-size: 11px; word-break: break-all; text-align: center; }
     .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
     .empty { text-align: center; color: var(--muted); font-size: 13px; padding: 30px 0; }
@@ -230,7 +245,8 @@
 
   <div class="toast-wrap" id="toasts"></div>
 
-  <div class="navbar" id="navbar"><div class="n-arrow" id="n-arrow">⬆️</div><div style="flex:1"><div class="n-main" id="n-main"></div><div class="n-sub" id="n-sub"></div></div><button id="n-mode" onclick="toggleNavMode()" style="margin-left:0">🚗 Drive</button><button onclick="stopNav()">End</button></div>
+  <div class="turn" id="turn"><div class="t-ic" id="t-ic">⬆️</div><div style="flex:1"><div class="t-dist" id="t-dist"></div><div class="t-ins" id="t-ins"></div><div class="t-then" id="t-then"></div></div></div>
+  <div class="navbar" id="navbar"><div style="flex:1"><div class="n-main" id="n-main"></div><div class="n-sub" id="n-sub"></div></div><button id="n-routes" onclick="showRoutePicker()" style="margin-left:0">Routes</button><button id="n-mode" onclick="toggleNavMode()" style="margin-left:0">🚗 Drive</button><button onclick="stopNav()">End</button></div>
 
   <button class="fab left" onclick="openSheet('rewards')" title="Rewards">🎁</button>
   <button class="fab right" onclick="recenter()" title="My location">📍</button>
@@ -490,11 +506,12 @@ function onPosErr(err) {
 
 function onPos(pos) {
   const { latitude: lat, longitude: lng, accuracy, speed } = pos.coords;
-  lastPos = { lat, lng, accuracy, speed, t: Date.now() };
+  lastPos = { lat, lng, accuracy, speed, heading: pos.coords.heading, t: Date.now() };
   const mph = speed ? Math.round(speed * 2.237) : null;
+  if (nav && puck && !puck._map) puck.setLngLat([lng, lat]).addTo(map);
   updateNavLive(lat, lng, pos.coords.heading);
   checkApproach(lat, lng, pos.coords.heading);
-  if (nav && mph > 3) map.easeTo({ center: [lng, lat], zoom: 16.5, pitch: 50, bearing: pos.coords.heading || 0, duration: 900 });
+  if (nav) { const c = (nav.snapped && !nav.offCount) ? [nav.snapped.lng, nav.snapped.lat] : [lng, lat]; const b = (mph > 3 && pos.coords.heading != null) ? pos.coords.heading : map.getBearing(); map.easeTo({ center: c, zoom: mph > 25 ? 15.5 : 16.5, pitch: 55, bearing: b, duration: 900, padding: { bottom: 160 } }); }
   setPill('live', isSubscribed() ? (mph ? `Collecting · ${mph} mph` : 'Collecting') : 'Viewing');
 
   const prev = prevPos; prevPos = { lat, lng, accuracy, t: Date.now() };
@@ -580,57 +597,165 @@ function openStripe() {
 }
 
 /* ---------------- In-app navigation ---------------- */
-let nav = null, navTimer = null;
+let nav = null, navTimer = null, puck = null;
+const PUCK_SVG = `<svg viewBox="0 0 46 46"><circle cx="23" cy="23" r="21" fill="rgba(0,212,255,0.18)"/><path class="body" d="M23 5 L35 37 L23 30 L11 37 Z" fill="#00D4FF" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"/></svg>`;
+
 async function startNav(nodeId) {
   const n = nodes.find(x => x.id === nodeId); if (!n) return;
   closeSheet();
   const d0 = lastPos ? distM(lastPos.lat, lastPos.lng, n.lat, n.lng) : Infinity;
-  const slow = !lastPos || !lastPos.speed || lastPos.speed < 2.2;   // under ~5 mph
-  nav = { node: n, lastRoute: 0, mode: (d0 < 150 && slow) ? 'walking' : 'driving' };
+  const slow = !lastPos || !lastPos.speed || lastPos.speed < 2.2;
+  nav = { node: n, mode: (d0 < 150 && slow) ? 'walking' : 'driving', routes: [], sel: 0, route: null, steps: [], stepIdx: 0, offCount: 0, spoken: {}, lastReroute: 0 };
   setFocus(n.campaigns?.business_id, n.campaigns?.business_name);
   setNavModeLabel();
-  $('navbar').classList.add('on');
+  $('navbar').classList.add('on'); $('turn').classList.add('on');
   $('n-main').textContent = 'Getting route…'; $('n-sub').textContent = n.campaigns?.business_name || '';
+  $('t-ic').textContent = '🧭'; $('t-dist').textContent = ''; $('t-ins').textContent = 'Finding the best routes…'; $('t-then').textContent = '';
   if (!map.getSource('route')) {
     map.addSource('route', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-    map.addLayer({ id: 'route-line', type: 'line', source: 'route', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#00D4FF', 'line-width': 6, 'line-opacity': 0.85 } });
+    map.addSource('route-alt', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({ id: 'route-alt-line', type: 'line', source: 'route-alt', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#94A3B8', 'line-width': 5, 'line-opacity': 0.5, 'line-dasharray': [1.5, 1.5] } });
+    map.addLayer({ id: 'route-casing', type: 'line', source: 'route', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#0A0F1E', 'line-width': 10, 'line-opacity': 0.6 } });
+    map.addLayer({ id: 'route-line', type: 'line', source: 'route', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#00D4FF', 'line-width': 6, 'line-opacity': 0.95 } });
   }
-  await refreshRoute(true);
-  navTimer = setInterval(() => refreshRoute(false), 8000);
+  showPuck(true);
+  await fetchRoutes(true);
+  navTimer = setInterval(navTick, 1000);
 }
 function setNavModeLabel() { $('n-mode').textContent = nav?.mode === 'walking' ? '🚶 Walk' : '🚗 Drive'; }
-function toggleNavMode() { if (!nav) return; nav.mode = nav.mode === 'walking' ? 'driving' : 'walking'; setNavModeLabel(); refreshRoute(true); }
+function toggleNavMode() { if (!nav) return; nav.mode = nav.mode === 'walking' ? 'driving' : 'walking'; setNavModeLabel(); fetchRoutes(true); }
 function stopNav() {
   nav = null; if (navTimer) { clearInterval(navTimer); navTimer = null; }
-  $('navbar').classList.remove('on');
-  if (map.getSource('route')) map.getSource('route').setData({ type: 'FeatureCollection', features: [] });
+  $('navbar').classList.remove('on'); $('turn').classList.remove('on');
+  if (map.getSource('route')) { map.getSource('route').setData({ type: 'FeatureCollection', features: [] }); map.getSource('route-alt').setData({ type: 'FeatureCollection', features: [] }); }
+  showPuck(false);
   map.easeTo({ pitch: 0, bearing: 0 });
 }
-async function refreshRoute(fit) {
+
+/* heading arrow instead of the blue dot while navigating */
+function showPuck(on) {
+  if (on) {
+    if (!puck) { const el = document.createElement('div'); el.className = 'puck'; el.innerHTML = PUCK_SVG; puck = new mapboxgl.Marker({ element: el, rotationAlignment: 'map', pitchAlignment: 'map' }); }
+    if (lastPos) puck.setLngLat([lastPos.lng, lastPos.lat]).addTo(map);
+    document.querySelectorAll('.mapboxgl-user-location, .mapboxgl-user-location-dot').forEach(e => e.style.visibility = 'hidden');
+  } else {
+    if (puck) puck.remove();
+    document.querySelectorAll('.mapboxgl-user-location, .mapboxgl-user-location-dot').forEach(e => e.style.visibility = '');
+  }
+}
+
+/* ask Mapbox for up to 3 routes, let the driver pick */
+async function fetchRoutes(fit) {
   if (!nav) return;
   if (!lastPos) { $('n-main').textContent = 'Waiting for GPS…'; return; }
   const { lat, lng } = lastPos, n = nav.node;
   try {
     const profile = nav.mode === 'walking' ? 'walking' : 'driving-traffic';
-    const url = `https://api.mapbox.com/directions/v5/mapbox/${profile}/${lng},${lat};${n.lng},${n.lat}?geometries=geojson&overview=full&steps=true&radiuses=60;60&access_token=${MAPBOX_TOKEN}`;
+    const brg = (lastPos.heading != null && lastPos.speed > 2) ? `&bearings=${Math.round(lastPos.heading)},45;` : '';
+    const url = `https://api.mapbox.com/directions/v5/mapbox/${profile}/${lng},${lat};${n.lng},${n.lat}?alternatives=true&geometries=geojson&overview=full&steps=true&banner_instructions=true&voice_instructions=false&radiuses=60;60${brg}&access_token=${MAPBOX_TOKEN}`;
     const r = await (await fetch(url)).json();
-    const route = r.routes?.[0]; if (!route) { $('n-main').textContent = 'No route found'; return; }
-    map.getSource('route').setData({ type: 'Feature', geometry: route.geometry });
-    const step = route.legs?.[0]?.steps?.[0];
-    const next = route.legs?.[0]?.steps?.[1];
-    $('n-main').textContent = `${fmtDist(route.distance)} · ${Math.max(1, Math.round(route.duration/60))} min`;
-    $('n-sub').textContent = (next?.maneuver?.instruction || step?.maneuver?.instruction || '').replace(/\.$/, '') + (next ? ` in ${fmtDist(step.distance)}` : '');
-    if (fit) { const b = new mapboxgl.LngLatBounds(); route.geometry.coordinates.forEach(c => b.extend(c)); map.fitBounds(b, { padding: { top: 180, bottom: 220, left: 40, right: 40 }, maxZoom: 16 }); }
+    if (!r.routes?.length) { $('n-main').textContent = 'No route found'; $('t-ins').textContent = 'No route found — try Walk mode'; return; }
+    nav.routes = r.routes; nav.sel = 0; nav.lastReroute = Date.now();
+    applyRoute(fit);
+    if (fit && nav.routes.length > 1 && !nav.pickedOnce) { showRoutePicker(); }
   } catch (e) { $('n-main').textContent = 'Route unavailable'; }
+}
+function applyRoute(fit) {
+  const route = nav.routes[nav.sel]; nav.route = route;
+  nav.steps = route.legs?.[0]?.steps || []; nav.stepIdx = 0; nav.offCount = 0; nav.spoken = {};
+  nav.line = route.geometry.coordinates;
+  map.getSource('route').setData({ type: 'Feature', geometry: route.geometry });
+  map.getSource('route-alt').setData({ type: 'FeatureCollection', features: nav.routes.filter((_, i) => i !== nav.sel).map(x => ({ type: 'Feature', geometry: x.geometry })) });
+  $('n-main').textContent = `${fmtDist(route.distance)} · ${Math.max(1, Math.round(route.duration/60))} min`;
+  $('n-sub').textContent = routeLabel(route, nav.sel) + (nav.routes.length > 1 ? ` · ${nav.routes.length} routes` : '');
+  $('n-routes').style.display = nav.routes.length > 1 ? '' : 'none';
+  if (fit) { const b = new mapboxgl.LngLatBounds(); nav.line.forEach(c => b.extend(c)); map.fitBounds(b, { padding: { top: 200, bottom: 220, left: 40, right: 40 }, maxZoom: 16 }); }
+  updateTurnCard(lastPos?.lat, lastPos?.lng, true);
+}
+function routeLabel(route, i) {
+  const names = []; (route.legs?.[0]?.steps || []).forEach(st => { if (st.name && !names.includes(st.name) && names.length < 2) names.push(st.name); });
+  return (i === 0 ? 'Fastest' : 'Alternate') + (names.length ? ' via ' + names.join(', ') : '');
+}
+function showRoutePicker() {
+  if (!nav || !nav.routes.length) return;
+  nav.pickedOnce = true;
+  const best = Math.min(...nav.routes.map(r => r.duration));
+  sheet('Choose a route', 'Tap the one you want. The others stay dotted on the map.', `<div class="routes">` + nav.routes.map((r, i) => `
+    <div class="route-opt ${i === nav.sel ? 'sel' : ''}" onclick="pickRoute(${i})">
+      <div><div class="r-time">${Math.max(1, Math.round(r.duration/60))} min</div><div class="r-sub">${fmtDist(r.distance)} · ${esc(routeLabel(r, i))}</div></div>
+      ${r.duration === best ? '<span class="r-tag">Fastest</span>' : (r.distance === Math.min(...nav.routes.map(x => x.distance)) ? '<span class="r-tag">Shortest</span>' : '')}
+    </div>`).join('') + `</div>
+    <button class="btn btn-ghost" style="margin-top:12px" onclick="toggleNavMode();closeSheet()">Switch to ${nav.mode === 'walking' ? '🚗 driving' : '🚶 walking'} routes</button>`);
+}
+function pickRoute(i) { if (!nav) return; nav.sel = i; applyRoute(true); closeSheet(); say(`Route ${i + 1}. ${routeLabel(nav.routes[i], i)}.`); }
+
+/* every second: snap to route, advance steps, detect off-route */
+function navTick() {
+  if (!nav || !lastPos || !nav.line) return;
+  const { lat, lng } = lastPos;
+  // 1. distance from the route line
+  let best = { d: Infinity, idx: 0, lat, lng };
+  for (let i = 0; i < nav.line.length - 1; i++) {
+    const c = closestPointOnSegment(nav.line[i][1], nav.line[i][0], nav.line[i+1][1], nav.line[i+1][0], lat, lng);
+    if (c.d < best.d) best = { d: c.d, idx: i, lat: c.lat, lng: c.lng };
+  }
+  nav.snapped = best;
+  // 2. off-route?  (3 fixes in a row > 40 m away)
+  const off = best.d > 40;
+  nav.offCount = off ? nav.offCount + 1 : 0;
+  $('turn').classList.toggle('off', nav.offCount >= 3);
+  if (nav.offCount >= 3 && Date.now() - nav.lastReroute > 8000) {
+    nav.lastReroute = Date.now(); nav.offCount = 0;
+    $('t-ins').textContent = 'Off route — recalculating…'; say('Recalculating.');
+    fetchRoutes(false); return;
+  }
+  // 3. puck follows the snapped point when on route (so it rides the line), raw GPS when off
+  const px = nav.offCount ? lng : best.lng, py = nav.offCount ? lat : best.lat;
+  if (puck) { puck.setLngLat([px, py]); puck.getElement().classList.toggle('off', nav.offCount > 0); }
+  // 4. advance the current step
+  const st = nav.steps; if (!st.length) return;
+  while (nav.stepIdx < st.length - 1) {
+    const next = st[nav.stepIdx + 1], loc = next.maneuver.location;
+    if (distM(lat, lng, loc[1], loc[0]) < 25) nav.stepIdx++; else break;
+  }
+  updateTurnCard(lat, lng, false);
+  // 5. arrived / collected
+  const n = nav.node, d = distM(lat, lng, n.lat, n.lng);
+  if (d <= 300 && !nav.spoken.near) { nav.spoken.near = true; }
+  if (onCooldown(n.id) && localCooldown[n.id] > Date.now() + 60*60*1000) { toast('info', '🧭', 'Arrived', 'Token collected — navigation ended'); stopNav(); }
+}
+const TURN_ICONS = { 'turn-left': '⬅️', 'turn-right': '➡️', 'turn-slight left': '↖️', 'turn-slight right': '↗️', 'turn-sharp left': '⬅️', 'turn-sharp right': '➡️', 'turn-uturn': '↩️', 'turn-straight': '⬆️',
+  'depart': '🚗', 'arrive': '🏁', 'merge': '↗️', 'on ramp': '↗️', 'off ramp': '↘️', 'fork-left': '↖️', 'fork-right': '↗️', 'end of road-left': '⬅️', 'end of road-right': '➡️', 'continue': '⬆️', 'roundabout': '🔄', 'rotary': '🔄', 'new name': '⬆️' };
+function turnIcon(m) { if (!m) return '⬆️'; const t = m.type, mod = m.modifier; return TURN_ICONS[`${t}-${mod}`] || TURN_ICONS[t] || (mod === 'left' ? '⬅️' : mod === 'right' ? '➡️' : '⬆️'); }
+function updateTurnCard(lat, lng, force) {
+  if (!nav || !nav.steps.length) return;
+  const cur = nav.steps[nav.stepIdx], next = nav.steps[nav.stepIdx + 1];
+  const target = next || cur;                       // the maneuver we are driving toward
+  const loc = target.maneuver.location;
+  const dToTurn = (lat != null) ? distM(lat, lng, loc[1], loc[0]) : target.distance;
+  const ins = (target.maneuver.instruction || '').replace(/\.$/, '');
+  $('t-ic').textContent = turnIcon(target.maneuver);
+  $('t-dist').textContent = next ? fmtDist(dToTurn) : 'Arriving';
+  $('t-ins').textContent = ins;
+  const after = nav.steps[nav.stepIdx + 2];
+  $('t-then').textContent = after ? `Then: ${(after.maneuver.instruction || '').replace(/\.$/, '')}` : '';
+  // voice: once at ~0.25 mi, once at ~300 ft, once at the turn
+  if (next && !force) {
+    const k = nav.stepIdx;
+    if (dToTurn < 420 && dToTurn > 150 && !nav.spoken['a' + k]) { nav.spoken['a' + k] = 1; say(`In a quarter mile, ${ins}.`); }
+    else if (dToTurn <= 150 && dToTurn > 40 && !nav.spoken['b' + k]) { nav.spoken['b' + k] = 1; say(`In ${fmtDist(dToTurn)}, ${ins}.`); }
+    else if (dToTurn <= 40 && !nav.spoken['c' + k]) { nav.spoken['c' + k] = 1; say(ins); }
+  }
 }
 function updateNavLive(lat, lng, heading) {
   if (!nav) return;
-  const n = nav.node, d = distM(lat, lng, n.lat, n.lng);
-  const brg = bearing(lat, lng, n.lat, n.lng);
-  const rel = heading == null ? brg : ((brg - heading) + 360) % 360;
-  $('n-arrow').style.transform = `rotate(${rel}deg)`;
-  if (d <= 300) $('n-sub').textContent = `${fmtDist(d)} to token — it will collect automatically`;
-  if (onCooldown(n.id) && localCooldown[n.id] > Date.now() + 60*60*1000) { toast('info', '🧭', 'Arrived', 'Token collected — navigation ended'); stopNav(); }
+  // arrow points where the phone is heading; if stopped, point along the route
+  let h = heading;
+  if ((h == null || !(lastPos?.speed > 1)) && nav.line && nav.snapped) {
+    const i = Math.min(nav.snapped.idx, nav.line.length - 2);
+    h = bearing(nav.line[i][1], nav.line[i][0], nav.line[i+1][1], nav.line[i+1][0]);
+  }
+  if (puck && h != null) puck.setRotation(h);
 }
 function bearing(lat1, lon1, lat2, lon2) {
   const toR = d => d*Math.PI/180, toD = r => r*180/Math.PI;
@@ -664,7 +789,7 @@ function checkApproach(lat, lng, heading) {
   let best = null, bestD = Infinity;
   nodes.forEach(n => { if (realCooldown(n.id)) return; const d = distM(lat, lng, n.lat, n.lng); if (d < bestD) { bestD = d; best = n; } });
   const el = $('approach');
-  if (!best || bestD > APPROACH_M || bestD <= COLLECT_RADIUS_M) { el.classList.remove('on'); Object.values(markers).forEach(m => m.getElement().classList.remove('pulse')); return; }
+  if (nav || !best || bestD > APPROACH_M || bestD <= COLLECT_RADIUS_M) { el.classList.remove('on'); Object.values(markers).forEach(m => m.getElement().classList.remove('pulse')); return; }
   const name = best.campaigns?.business_name || 'Token';
   const side = sideOf(lat, lng, heading, best.lat, best.lng);
   $('p-main').textContent = `${name} — ${fmtDist(bestD)} ${side}`;
@@ -747,7 +872,7 @@ function sheetToken(n) {
 async function sheetRewards() {
   sheet('Rewards', 'Points are kept per business and never expire. Redeem at a business to turn your points there into a reward.', '<div class="empty">Loading…</div>');
   const [{ data: bals }, { data: rewards }, { data: reds }] = await Promise.all([
-    sb.from('business_balances').select('*').eq('user_id', session.user.id).order('balance', { ascending: false }),
+    sb.from('business_balances').select('*').eq('user_id', session.user.id).order('earned', { ascending: false }),
     sb.from('rewards').select('id,business_id,reward_name,reward_cost_points,description').eq('is_active', true),
     sb.from('redemptions').select('id,status,qr_code_value,points_deducted,created_at,redeemed_at,business_id,reward_id').eq('user_id', session.user.id).order('created_at', { ascending: false }).limit(30)
   ]);
@@ -757,38 +882,42 @@ async function sheetRewards() {
   const pending = (reds || []).filter(r => r.status === 'pending');
   const used = (reds || []).filter(r => r.status !== 'pending');
   const total = (bals || []).reduce((s, b) => s + b.balance, 0);
-  let html = `<div class="stat-grid"><div class="stat"><b>${total}</b><span>points available</span></div><div class="stat"><b>${pending.length}</b><span>rewards ready</span></div></div>`;
+  let html = `<div class="stat-grid"><div class="stat"><b>${total}</b><span>points available</span></div><div class="stat"><b>${pending.length}</b><span>QR codes waiting to be scanned</span></div></div>`;
   if (pending.length) {
     html += `<h3 style="font-size:14px;margin:6px 0 8px">Show this at the counter</h3>` + pending.map(r => {
       const rw = (rewards || []).find(x => x.id === r.reward_id) || defaultReward;
-      return `<div class="reward-box"><h3>${esc(nameFor(r.business_id))}</h3><p>${esc(rw.reward_name)} · claimed ${fmtDate(r.created_at)}</p>
-        <div class="qr"><canvas id="qr-${r.id}"></canvas><code>${esc(r.qr_code_value)}</code></div>
-        <p class="fine" style="margin:0">The business scans this once. Keep it until you use it.</p></div>`; }).join('');
+      return `<div class="reward-box"><h3>${esc(nameFor(r.business_id))}</h3><p>${esc(rw.reward_name)} · ${r.points_deducted} pts reserved · <b style="color:var(--gold)">not scanned yet</b></p>
+        <div class="qr"><img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=4&data=${encodeURIComponent(r.qr_code_value)}" alt="QR" /><code>${esc(r.qr_code_value)}</code></div>
+        <p class="fine" style="margin:0 0 8px">The business scans this once — that is when the reward is claimed and the points are used.</p>
+        <button class="btn btn-ghost" onclick="cancelQR('${r.id}')">Cancel this QR (get ${r.points_deducted} pts back)</button></div>`; }).join('');
   }
   html += `<h3 style="font-size:14px;margin:14px 0 8px">Your points by business</h3>`;
   if (!(bals || []).length) html += '<div class="empty">No points yet. Subscribe and drive past a token to start earning.</div>';
   (bals || []).forEach(b => {
     const rw = rewardFor(b.business_id), can = b.balance >= rw.reward_cost_points, pct = Math.min(100, Math.round(b.balance / rw.reward_cost_points * 100));
     html += `<div class="reward-box"><h3>${esc(b.business_name)}</h3><p>${esc(b.business_address || '')}</p>
-      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px"><span><b style="color:var(--text)">${b.balance}</b> pts here</span><span style="color:var(--muted)">${rw.reward_cost_points} needed</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px"><span><b style="color:var(--text)">${b.balance}</b> pts available${b.reserved ? ` <span style="color:var(--gold)">(+${b.reserved} reserved)</span>` : ''}</span><span style="color:var(--muted)">${rw.reward_cost_points} per reward</span></div>
       <div class="progress"><div style="width:${pct}%"></div></div>
       <p style="margin:8px 0 10px">${esc(rw.reward_name)}${rw.description ? ' — ' + esc(rw.description) : ''}</p>
-      <button class="btn btn-primary" ${can ? '' : 'disabled'} onclick="claimReward('${b.business_id}', '${esc(b.business_name)}', ${b.balance})">${can ? 'Redeem here' : `${rw.reward_cost_points - b.balance} more pts needed`}</button></div>`;
+      <button class="btn btn-primary" ${can ? '' : 'disabled'} onclick="claimReward('${b.business_id}', '${esc(b.business_name)}', ${rw.reward_cost_points})">${can ? 'Get reward QR' : `${rw.reward_cost_points - b.balance} more pts needed`}</button></div>`;
   });
   if (used.length) html += `<h3 style="font-size:14px;margin:14px 0 6px">Used</h3>` + used.map(r => `<div class="row"><div>${esc(nameFor(r.business_id))}<div class="r-sub">${r.points_deducted} pts · ${fmtDate(r.redeemed_at || r.created_at)}</div></div><span class="badge" style="background:rgba(34,197,94,0.15);color:var(--success)">Used</span></div>`).join('');
   $('sheet-body').innerHTML = html;
-  pending.forEach(r => { const cv = $('qr-' + r.id); if (cv) QRCode.toCanvas(cv, r.qr_code_value, { width: 200, margin: 1 }); });
 }
 
-async function claimReward(businessId, businessName, balance) {
-  if (!confirm(`Redeem at ${businessName}? This uses all ${balance} of your points there. Points at other businesses are not affected.`)) return;
+async function cancelQR(id) {
+  if (!confirm('Cancel this QR code? Your points come back.')) return;
+  const { data } = await sb.rpc('cancel_redemption', { p_id: id });
+  if (data?.ok) { await loadBalances(); sheetRewards(); } else toast('err', '⚠️', 'Could not cancel', 'It may already be scanned');
+}
+async function claimReward(businessId, businessName, cost) {
+  if (!confirm(`Get a reward QR for ${businessName}? ${cost} pts are reserved until the business scans it. You can cancel before that.`)) return;
   const { data, error } = await sb.rpc('redeem_reward', { p_business_id: businessId });
   if (error) return toast('err', '⚠️', 'Could not redeem', error.message);
   if (!data?.ok) return toast('err', '⚠️', 'Could not redeem', data?.reason === 'not_enough_points' ? `Need ${data.need}, have ${data.have}` : (data?.reason || ''));
-  profile.remaining_points = Math.max(0, (profile.remaining_points || 0) - data.points_deducted);
   await loadBalances(); vibrate([80]);
   say(`Reward ready at ${businessName}. Show the QR code at the counter.`);
-  toast('earn', '🎁', `${data.reward} at ${businessName}`, 'QR code is ready — show it at the counter');
+  toast('earn', '🎁', `${data.reward} at ${businessName}`, 'QR ready — the business scans it to claim');
   sheetRewards();
 }
 
