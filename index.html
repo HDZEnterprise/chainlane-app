@@ -107,10 +107,10 @@
     .puck.off svg path.body { fill: #F97316; }
     .turn { position: absolute; left: 12px; right: 12px; top: calc(118px + var(--safe-top)); z-index: 14; background: rgba(17,24,39,0.97); border: 1px solid var(--accent); border-radius: 14px; padding: 12px 14px; display: none; align-items: center; gap: 14px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
     .turn.on { display: flex; }
-    .turn .t-ic { font-size: 34px; width: 44px; text-align: center; }
-    .turn .t-dist { font-size: 22px; font-weight: 800; line-height: 1; }
-    .turn .t-ins { font-size: 14px; color: var(--muted); margin-top: 3px; }
-    .turn .t-then { font-size: 11px; color: var(--muted); margin-top: 4px; opacity: 0.8; }
+    .turn .t-ic { font-size: 44px; width: 54px; text-align: center; }
+    .turn .t-dist { font-size: 30px; font-weight: 800; line-height: 1; }
+    .turn .t-ins { font-size: 18px; color: var(--text); font-weight: 600; margin-top: 4px; line-height: 1.25; }
+    .turn .t-then { font-size: 13px; color: var(--muted); margin-top: 5px; }
     .turn.off { border-color: var(--orange); }
     .routes { display: flex; flex-direction: column; gap: 8px; }
     .route-opt { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface2); cursor: pointer; }
@@ -203,7 +203,7 @@
       <div class="field"><input id="up-pass" type="password" placeholder="Password (6+ characters)" autocomplete="new-password" minlength="6" required /></div>
       <div class="field"><input id="up-zip" type="text" inputmode="numeric" placeholder="Zip code" pattern="[0-9]{5}" maxlength="5" required /></div>
       <button class="btn btn-primary" id="up-btn" type="submit">Create Account</button>
-      <p class="fine">By signing up you agree to our <a href="https://mychainlane.com/policies/" target="_blank">terms and privacy policy</a>.</p>
+      <p class="fine">By signing up you agree to our <a href="/policies/" target="_blank">terms and privacy policy</a>.</p>
     </form>
   </div>
 </div>
@@ -265,6 +265,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
+const BUILD = 'v12';
 const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_-BhG4wJldST1w9mtVfyRDg_afXUM6hE';
 const MAPBOX_TOKEN  = 'pk.eyJ1IjoiY2hhaW55MTIzIiwiYSI6ImNtbmV4b3BqYzA0aGIycHB0c3ZndWJvOHoifQ.AMfDgzCfpDEOWhA_M7lIQQ';
@@ -314,6 +315,17 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 /* ---------------- Boot ---------------- */
+(async function freshCheck() {
+  try {
+    const t = await (await fetch(location.pathname, { cache: 'no-store' })).text();
+    const m = t.match(/const BUILD = '([^']+)'/);
+    if (m && m[1] !== BUILD && !sessionStorage.getItem('cl_reloaded_' + m[1])) {
+      sessionStorage.setItem('cl_reloaded_' + m[1], '1');
+      if ('caches' in window) { const ks = await caches.keys(); await Promise.all(ks.map(k => caches.delete(k))); }
+      location.reload();
+    }
+  } catch (e) {}
+})();
 (async function boot() {
   const { data } = await sb.auth.getSession();
   session = data.session;
@@ -511,7 +523,14 @@ function onPos(pos) {
   if (nav && puck && !puck._map) puck.setLngLat([lng, lat]).addTo(map);
   updateNavLive(lat, lng, pos.coords.heading);
   checkApproach(lat, lng, pos.coords.heading);
-  if (nav) { const c = (nav.snapped && !nav.offCount) ? [nav.snapped.lng, nav.snapped.lat] : [lng, lat]; const b = (mph > 3 && pos.coords.heading != null) ? pos.coords.heading : map.getBearing(); map.easeTo({ center: c, zoom: mph > 25 ? 15.5 : 16.5, pitch: 55, bearing: b, duration: 900, padding: { bottom: 160 } }); }
+  if (nav) {
+    const c = (nav.snapped && !nav.offCount) ? [nav.snapped.lng, nav.snapped.lat] : [lng, lat];
+    const b = (mph > 3 && pos.coords.heading != null) ? pos.coords.heading : map.getBearing();
+    // zoom in as a turn gets close so you can see exactly where to go
+    let z = mph > 25 ? 15.5 : 16.5;
+    const nx = nav.steps?.[nav.stepIdx + 1]; if (nx) { const dT = distM(lat, lng, nx.maneuver.location[1], nx.maneuver.location[0]); if (dT < 120) z = 18; else if (dT < 300) z = 17.2; }
+    map.easeTo({ center: c, zoom: z, pitch: 55, bearing: b, duration: 900, padding: { bottom: 160, top: 200 } });
+  }
   setPill('live', isSubscribed() ? (mph ? `Collecting · ${mph} mph` : 'Collecting') : 'Viewing');
 
   const prev = prevPos; prevPos = { lat, lng, accuracy, t: Date.now() };
@@ -719,6 +738,11 @@ function navTick() {
     if (distM(lat, lng, loc[1], loc[0]) < 25) nav.stepIdx++; else break;
   }
   updateTurnCard(lat, lng, false);
+  // trim the travelled part of the line so it does not linger behind you
+  if (!nav.offCount) {
+    const rest = [[best.lng, best.lat]].concat(nav.line.slice(best.idx + 1));
+    map.getSource('route').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: rest } });
+  }
   // 5. arrived / collected
   const n = nav.node, d = distM(lat, lng, n.lat, n.lng);
   if (d <= 300 && !nav.spoken.near) { nav.spoken.near = true; }
