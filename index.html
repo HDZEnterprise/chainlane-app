@@ -261,8 +261,8 @@ let voiceOn = localStorage.getItem('cl_voice') !== 'off';
 const fmtDist = m => m < 0.1*MI ? `${Math.round(m/FT/10)*10} ft` : `${(m/MI).toFixed(m < 10*MI ? 1 : 0)} mi`;
 const COOLDOWN_MS      = 12 * 60 * 60 * 1000;
 const DEFAULT_CENTER   = [-95.3698, 29.7604]; // Houston
-const COLORS = { MR: '#F97316', MMR: '#A855F7', SR: '#EAB308' };
-const TYPE_NAMES = { MR: 'Main Road', MMR: 'Mini Main Road', SR: 'Secret Road' };
+const COLORS = { MR: '#F97316', MMR: '#A855F7', SR: '#EAB308', GR: '#22C55E' };
+const TYPE_NAMES = { MR: 'Main Road', MMR: 'Mini Main Road', SR: 'Secret Road', GR: 'Grand Road' };
 const REASONS = {
   not_subscribed: 'Subscribe to collect tokens',
   cooldown: 'Already collected — try again in 12 h',
