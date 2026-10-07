@@ -937,7 +937,7 @@ function sheetProfile() {
   const subbed = isSubscribed();
   sheet(profile?.full_name || 'Profile', profile?.email || session.user.email, `
     <div class="stat-grid">
-      <div class="stat"><b>${profile?.total_points || 0}</b><span>lifetime points</span></div>
+      <div class="stat"><b>${balances.reduce((t, b) => t + (b.balance || 0), 0)}</b><span>points available</span></div>
       <div class="stat"><b style="color:${subbed ? 'var(--success)' : 'var(--muted)'}">${subbed ? 'Active' : 'None'}</b><span>subscription</span></div>
     </div>
     <div class="row"><span>Zip code</span><span>${esc(profile?.zip_code || '—')}</span></div>
