@@ -265,7 +265,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v12';
+const BUILD = 'v13';
 const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_-BhG4wJldST1w9mtVfyRDg_afXUM6hE';
 const MAPBOX_TOKEN  = 'pk.eyJ1IjoiY2hhaW55MTIzIiwiYSI6ImNtbmV4b3BqYzA0aGIycHB0c3ZndWJvOHoifQ.AMfDgzCfpDEOWhA_M7lIQQ';
@@ -305,7 +305,8 @@ let map = null, geolocate = null, markers = {};
 let nodes = [];
 let watchId = null, wakeLock = null, lastPos = null;
 let localCooldown = {};          // nodeId -> timestamp when it frees up
-let balances = [], rewardsList = [], focusBiz = null;   // per-business points; focusBiz = business the top bar is showing
+let balances = [], rewardsList = [], focusBiz = null;
+let WORLD = false;   // set from the account: showcase accounts live in the sample token set   // per-business points; focusBiz = business the top bar is showing
 let inFlight = new Set();        // nodes currently being collected
 let deviceId = localStorage.getItem('cl_device');
 if (!deviceId) { deviceId = crypto.randomUUID(); localStorage.setItem('cl_device', deviceId); }
@@ -409,7 +410,7 @@ async function loadCooldowns() {
 async function loadBalances() {
   const uid = session?.user?.id; if (!uid) return;
   const [{ data: b }, { data: r }] = await Promise.all([
-    sb.from('business_balances').select('business_id,business_name,balance').eq('user_id', uid),
+    sb.from('business_balances').select('business_id,business_name,balance').eq('user_id', uid).eq('is_demo', WORLD),
     sb.from('rewards').select('business_id,reward_name,reward_cost_points').eq('is_active', true)
   ]);
   balances = b || []; rewardsList = r || [];
@@ -420,7 +421,8 @@ function setFocus(bid, name) { if (!bid) return; focusBiz = { id: bid, name }; r
 async function loadProfile() {
   const uid = session?.user?.id; if (!uid) return;
   await loadBalances();
-  const { data } = await sb.from('users').select('full_name,email,zip_code,total_points,remaining_points,subscription_status,subscription_end,is_banned,created_at').eq('id', uid).maybeSingle();
+  const { data } = await sb.from('users').select('full_name,email,zip_code,total_points,remaining_points,subscription_status,subscription_end,is_banned,created_at,can_demo').eq('id', uid).maybeSingle();
+  WORLD = !!(data && data.can_demo);
   profile = data || { total_points: 0, remaining_points: 0, subscription_status: 'inactive' };
   renderPoints();
 }
@@ -457,7 +459,7 @@ function initMap() {
 async function loadNodes() {
   const { data, error } = await sb.from('token_nodes')
     .select('id,token_type,point_value,latitude,longitude,remaining,is_active,campaign_id,campaigns(business_id,business_name,business_address)')
-    .eq('is_active', true).gt('remaining', 0);
+    .eq('is_active', true).eq('is_demo', WORLD).gt('remaining', 0);
   if (error) { console.warn(error); return; }
   nodes = (data || []).map(n => ({ ...n, lat: +n.latitude, lng: +n.longitude }));
   $('near-count').textContent = `${nodes.length} token${nodes.length === 1 ? '' : 's'} on map`;
@@ -896,9 +898,9 @@ function sheetToken(n) {
 async function sheetRewards() {
   sheet('Rewards', 'Points are kept per business and never expire. Redeem at a business to turn your points there into a reward.', '<div class="empty">Loading…</div>');
   const [{ data: bals }, { data: rewards }, { data: reds }] = await Promise.all([
-    sb.from('business_balances').select('*').eq('user_id', session.user.id).order('earned', { ascending: false }),
+    sb.from('business_balances').select('*').eq('user_id', session.user.id).eq('is_demo', WORLD).order('earned', { ascending: false }),
     sb.from('rewards').select('id,business_id,reward_name,reward_cost_points,description').eq('is_active', true),
-    sb.from('redemptions').select('id,status,qr_code_value,points_deducted,created_at,redeemed_at,business_id,reward_id').eq('user_id', session.user.id).order('created_at', { ascending: false }).limit(30)
+    sb.from('redemptions').select('id,status,qr_code_value,points_deducted,created_at,redeemed_at,business_id,reward_id').eq('user_id', session.user.id).eq('is_demo', WORLD).order('created_at', { ascending: false }).limit(30)
   ]);
   const defaultReward = (rewards || []).find(r => !r.business_id) || { reward_name: 'Reward', reward_cost_points: 100 };
   const rewardFor = bid => (rewards || []).find(r => r.business_id === bid) || defaultReward;
@@ -936,7 +938,7 @@ async function cancelQR(id) {
 }
 async function claimReward(businessId, businessName, cost) {
   if (!confirm(`Get a reward QR for ${businessName}? ${cost} pts are reserved until the business scans it. You can cancel before that.`)) return;
-  const { data, error } = await sb.rpc('redeem_reward', { p_business_id: businessId });
+  const { data, error } = await sb.rpc('redeem_reward', { p_business_id: businessId, p_demo: WORLD });
   if (error) return toast('err', '⚠️', 'Could not redeem', error.message);
   if (!data?.ok) return toast('err', '⚠️', 'Could not redeem', data?.reason === 'not_enough_points' ? `Need ${data.need}, have ${data.have}` : (data?.reason || ''));
   await loadBalances(); vibrate([80]);
@@ -948,7 +950,7 @@ async function claimReward(businessId, businessName, cost) {
 async function sheetHistory() {
   sheet('History', 'Your last 50 collections.', '<div class="empty">Loading…</div>');
   const { data } = await sb.from('points_ledger').select('points_awarded,token_type,collected_at,campaigns(business_name)')
-    .eq('user_id', session.user.id).eq('status', 'awarded').order('collected_at', { ascending: false }).limit(50);
+    .eq('user_id', session.user.id).eq('status', 'awarded').eq('is_demo', WORLD).order('collected_at', { ascending: false }).limit(50);
   if (!data?.length) { $('sheet-body').innerHTML = '<div class="empty">No collections yet. Subscribe and drive past a token to earn your first points.</div>'; return; }
   $('sheet-body').innerHTML = data.map(r => `
     <div class="row">
