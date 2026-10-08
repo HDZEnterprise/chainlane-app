@@ -265,7 +265,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v13';
+const BUILD = 'v14';
 const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_-BhG4wJldST1w9mtVfyRDg_afXUM6hE';
 const MAPBOX_TOKEN  = 'pk.eyJ1IjoiY2hhaW55MTIzIiwiYSI6ImNtbmV4b3BqYzA0aGIycHB0c3ZndWJvOHoifQ.AMfDgzCfpDEOWhA_M7lIQQ';
@@ -489,6 +489,13 @@ function setPill(kind, text) { const p = $('track-pill'); p.className = 'pill ' 
 
 async function startTracking(fromButton) {
   if (!navigator.geolocation) { setPill('off', 'No GPS'); return; }
+  if (fromButton) {
+    // user tapped Enable: always restart, and force the permission prompt with a one-shot request first
+    stopTracking();
+    $('loc-help').textContent = 'Waiting for your answer on the location popup…';
+    try { await new Promise((ok, no) => navigator.geolocation.getCurrentPosition(ok, no, { enableHighAccuracy: true, timeout: 15000 })); }
+    catch (e) { if (e && e.code === 1) { onLocDenied(); return; } }
+  }
   if (watchId !== null) return;
   if (!fromButton && navigator.permissions) {
     try {
@@ -508,8 +515,11 @@ function stopTracking() {
 function onLocDenied() {
   setPill('off', 'Location off');
   const ua = navigator.userAgent;
-  $('loc-help').textContent = /iPhone|iPad/.test(ua)
-    ? 'iPhone: Settings → Privacy → Location Services → Safari Websites → While Using. Then reload.'
+  const inApp = /FBAN|FBAV|Instagram|WhatsApp|Line\/|Twitter|GSA\//.test(ua);
+  $('loc-help').textContent = inApp
+    ? 'Open this page in Safari or Chrome — in-app browsers block location. Tap ⋯ → Open in Browser.'
+    : /iPhone|iPad/.test(ua)
+    ? 'iPhone: Settings → Privacy & Security → Location Services → Safari Websites → While Using. Also Settings → Apps → Safari → Location → Ask. Then close this tab and reopen.'
     : 'Tap the lock icon in the address bar → Permissions → Location → Allow. Then reload.';
   $('loc-banner').classList.remove('hidden');
 }
