@@ -202,6 +202,7 @@
       <div class="field"><input id="up-email" type="email" placeholder="Email" autocomplete="email" required /></div>
       <div class="field"><input id="up-pass" type="password" placeholder="Password (6+ characters)" autocomplete="new-password" minlength="6" required /></div>
       <div class="field"><input id="up-zip" type="text" inputmode="numeric" placeholder="Zip code" pattern="[0-9]{5}" maxlength="5" required /></div>
+      <div class="field"><input id="up-promo" type="text" placeholder="Promo code (optional)" autocapitalize="characters" style="text-transform:uppercase" /></div>
       <button class="btn btn-primary" id="up-btn" type="submit">Create Account</button>
       <p class="fine">By signing up you agree to our <a href="https://mychainlane.com/policies/" target="_blank">terms and privacy policy</a>.</p>
     </form>
@@ -265,7 +266,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v14';
+const BUILD = 'v15';
 const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_-BhG4wJldST1w9mtVfyRDg_afXUM6hE';
 const MAPBOX_TOKEN  = 'pk.eyJ1IjoiY2hhaW55MTIzIiwiYSI6ImNtbmV4b3BqYzA0aGIycHB0c3ZndWJvOHoifQ.AMfDgzCfpDEOWhA_M7lIQQ';
@@ -280,6 +281,7 @@ const COOLDOWN_MS      = 12 * 60 * 60 * 1000;
 const DEFAULT_CENTER   = [-95.3698, 29.7604]; // Houston
 const COLORS = { MR: '#F97316', MMR: '#A855F7', SR: '#EAB308', GR: '#22C55E' };
 const TYPE_NAMES = { MR: 'Main Road', MMR: 'Mini Main Road', SR: 'Secret Road', GR: 'Grand Road' };
+const PROMO_REASONS = { invalid_code: 'That code is not valid', expired: 'That code has expired', code_used_up: 'That code has reached its limit', already_used: 'You already used this code' };
 const REASONS = {
   not_subscribed: 'Subscribe to collect tokens',
   cooldown: 'Already collected — try again in 12 h',
@@ -367,6 +369,8 @@ async function signUp(e) {
   if (!data.session) return authMsg('Check your email to confirm your account, then sign in.', 'ok');
   // profile row is created by the handle_new_user trigger; fill in the extras
   await sb.from('users').update({ full_name: name, zip_code: zip }).eq('id', data.user.id);
+  const promo = $('up-promo').value.trim();
+  if (promo) { const { data: r } = await sb.rpc('apply_promo_code', { p_code: promo }); if (r?.ok) toast('earn', '🎉', 'Free subscription applied', `Free through ${new Date(r.free_until + 'T12:00:00').toLocaleDateString()}`); else toast('err', '⚠️', 'Promo code not applied', PROMO_REASONS[r?.reason] || r?.reason || ''); }
   await enterApp();
   return false;
 }
@@ -980,10 +984,18 @@ function sheetProfile() {
     <div class="row"><span>Member since</span><span>${fmtDate(profile?.created_at)}</span></div>
     <div class="row"><span>Device</span><span style="font-size:11px;color:var(--muted)">${deviceId.slice(0, 8)}</span></div>
     ${subbed ? '' : `<button class="btn btn-primary" style="margin-top:14px" onclick="openStripe()">Subscribe — $10/mo</button>`}
+    <button class="btn btn-ghost" style="margin-top:10px" onclick="promptPromo()">Have a promo code?</button>
     <button class="btn btn-ghost" style="margin-top:10px" onclick="changePassword()">Change password</button>
     <button class="btn btn-ghost" style="margin-top:10px" onclick="refreshAll()">Refresh data</button>
     <button class="btn btn-ghost" style="margin-top:10px;color:var(--danger)" onclick="signOut()">Sign out</button>
     <p class="fine">Tip: install ChainLane to your home screen (Share → Add to Home Screen) and keep the screen on while driving.</p>`);
+}
+async function promptPromo() {
+  const code = prompt('Enter your promo code:'); if (!code) return;
+  const { data: r, error } = await sb.rpc('apply_promo_code', { p_code: code.trim() });
+  if (error || !r?.ok) return toast('err', '⚠️', 'Code not applied', error?.message || PROMO_REASONS[r?.reason] || r?.reason || '');
+  await loadProfile(); closeSheet(); vibrate([80]);
+  toast('earn', '🎉', 'Free subscription applied', `Free through ${new Date(r.free_until + 'T12:00:00').toLocaleDateString()}`);
 }
 async function changePassword() {
   const p = prompt('New password (6+ characters):'); if (!p) return;
