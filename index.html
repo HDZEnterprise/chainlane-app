@@ -9,8 +9,8 @@
   <meta name="apple-mobile-web-app-title" content="ChainLane" />
   <meta name="theme-color" content="#0A0F1E" />
   <link rel="manifest" href="/manifest.json" />
-  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
-  <link rel="icon" href="/icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="icon" href="/img/favicon.png" />
   <title>ChainLane</title>
 
   <link href="https://api.mapbox.com/mapbox-gl-js/v3.30.0/mapbox-gl.css" rel="stylesheet" />
@@ -183,7 +183,7 @@
 <!-- ================= AUTH ================= -->
 <div id="auth" class="hidden">
   <div class="auth-card">
-    <div class="logo"><div class="logo-icon">⛓</div><div class="logo-text">ChainLane</div></div>
+    <div class="logo"><img src="/img/logo-full-dark.png" alt="ChainLane" style="width:260px;max-width:80%;height:auto;display:block;"></div>
     <div class="tabs">
       <button class="tab active" id="tab-in" onclick="authTab('in')">Sign In</button>
       <button class="tab" id="tab-up" onclick="authTab('up')">Create Account</button>
@@ -216,7 +216,7 @@
   <div class="overlay">
     <div class="card">
       <div class="top-row">
-        <div class="brand"><div class="brand-icon">⛓</div><span class="brand-name">ChainLane</span></div>
+        <div class="brand"><img src="/img/logo-mark.png" alt="" style="height:26px;width:auto;display:block;"><span class="brand-name">ChainLane</span></div>
         <span class="pts" id="pts">0 pts</span>
         <span class="pill idle" id="track-pill"><span class="pill-dot"></span><span id="track-text">Starting…</span></span>
       </div>
@@ -266,7 +266,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v15';
+const BUILD = 'v16';
 const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_-BhG4wJldST1w9mtVfyRDg_afXUM6hE';
 const MAPBOX_TOKEN  = 'pk.eyJ1IjoiY2hhaW55MTIzIiwiYSI6ImNtbmV4b3BqYzA0aGIycHB0c3ZndWJvOHoifQ.AMfDgzCfpDEOWhA_M7lIQQ';
