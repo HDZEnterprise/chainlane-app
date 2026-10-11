@@ -222,6 +222,7 @@
       </div>
       <div class="progress"><div id="prog"></div></div>
       <div class="labels"><span id="to-next">100 pts to next reward</span><span id="near-count">0 tokens on map</span></div>
+      <div class="labels" style="margin-top:4px"><span id="online" style="color:var(--success)">● — drivers online</span></div>
     </div>
 
     <div class="card banner sub hidden" id="sub-banner">
@@ -266,7 +267,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v16';
+const BUILD = 'v17';
 const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_-BhG4wJldST1w9mtVfyRDg_afXUM6hE';
 const MAPBOX_TOKEN  = 'pk.eyJ1IjoiY2hhaW55MTIzIiwiYSI6ImNtbmV4b3BqYzA0aGIycHB0c3ZndWJvOHoifQ.AMfDgzCfpDEOWhA_M7lIQQ';
@@ -307,7 +308,8 @@ let map = null, geolocate = null, markers = {};
 let nodes = [];
 let watchId = null, wakeLock = null, lastPos = null;
 let localCooldown = {};          // nodeId -> timestamp when it frees up
-let balances = [], rewardsList = [], focusBiz = null;
+let balances = [], rewardsList = [], focusBiz = null, bizInfo = {};
+async function loadBizInfo(id) { const { data } = await sb.from('business_public').select('*').eq('id', id).maybeSingle(); bizInfo[id] = data || {}; }
 let WORLD = false;   // set from the account: showcase accounts live in the sample token set   // per-business points; focusBiz = business the top bar is showing
 let inFlight = new Set();        // nodes currently being collected
 let deviceId = localStorage.getItem('cl_device');
@@ -392,9 +394,18 @@ async function enterApp() {
   await Promise.all([loadSettings(), loadCooldowns()]);
   await loadNodes();
   startTracking(false);
+  pulse(); setInterval(pulse, 60 * 1000);
   setInterval(async () => { await loadSettings(); await loadCooldowns(); await loadNodes(); }, 2 * 60 * 1000);
 }
 
+const fmtCount = n => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'k' : String(n);
+async function pulse() {
+  try {
+    if (document.visibilityState === 'visible') await sb.rpc('heartbeat');
+    const { data } = await sb.rpc('online_count', { p_demo: WORLD });
+    if (typeof data === 'number') $('online').textContent = `● ${fmtCount(data)} driver${data === 1 ? '' : 's'} online`;
+  } catch (e) {}
+}
 async function loadSettings() {
   const { data } = await sb.from('app_settings').select('value').eq('key', 'collect_radius_m').maybeSingle();
   const v = data ? parseFloat(data.value) : NaN;
@@ -466,6 +477,7 @@ async function loadNodes() {
     .eq('is_active', true).eq('is_demo', WORLD).gt('remaining', 0);
   if (error) { console.warn(error); return; }
   nodes = (data || []).map(n => ({ ...n, lat: +n.latitude, lng: +n.longitude }));
+  [...new Set(nodes.map(n => n.campaigns?.business_id).filter(Boolean))].forEach(id => { if (!bizInfo[id]) loadBizInfo(id); });
   $('near-count').textContent = `${nodes.length} token${nodes.length === 1 ? '' : 's'} on map`;
   drawMarkers();
 }
@@ -851,7 +863,8 @@ function showArrive(n, pts) {
   $('a-name').textContent = n.campaigns?.business_name || 'Token collected';
   $('a-addr').textContent = n.campaigns?.business_address || '';
   $('a-here').textContent = `You're here — ${n.campaigns?.business_name || 'the business'} is right beside you`;
-  $('a-offer').innerHTML = `<b>${TYPE_NAMES[n.token_type] || n.token_type} token</b> · earn 100 pts for a reward you can redeem at participating businesses. Open <b>Rewards</b> to see your QR code.`;
+  const bzo = bizInfo[n.campaigns?.business_id] || {};
+  $('a-offer').innerHTML = bzo.offer_title ? `<b>🎁 ${esc(bzo.offer_title)}</b> · ${rewardFor(n.campaigns?.business_id).reward_cost_points} pts unlocks it. Open <b>Rewards</b> to see your progress.` : `<b>${TYPE_NAMES[n.token_type] || n.token_type} token</b> · earn ${rewardFor(n.campaigns?.business_id).reward_cost_points} pts here for a reward. Open <b>Rewards</b> to see your progress.`;
   $('arrive').classList.add('on');
   $('approach').classList.remove('on');
   map.flyTo({ center: [n.lng, n.lat], zoom: 17, pitch: 0, duration: 900 });
@@ -896,8 +909,21 @@ function sheetToken(n) {
                : d <= COLLECT_RADIUS_M ? '✅ You are here — collecting…'
                : `🚗 Drive within ${fmtDist(COLLECT_RADIUS_M)} to collect automatically — you are ${fmtDist(d)} away`;
   const bb = balances.find(x => x.business_id === n.campaigns?.business_id), rwb = rewardFor(n.campaigns?.business_id);
+  const bz = bizInfo[n.campaigns?.business_id] || {};
+  if (!bizInfo[n.campaigns?.business_id] && n.campaigns?.business_id) loadBizInfo(n.campaigns.business_id).then(() => { if ($('sheet-body')) sheetToken(n); });
+  const tel = (bz.business_phone || '').replace(/[^0-9+]/g, '');
+  const site = bz.business_website ? (bz.business_website.startsWith('http') ? bz.business_website : 'https://' + bz.business_website) : '';
   sheet(n.campaigns?.business_name || 'Token', n.campaigns?.business_address || '', `
-    <p class="fine" style="margin:0 0 10px;text-align:left">You have <b style="color:var(--text)">${bb ? bb.balance : 0} pts</b> at this business · ${rwb.reward_cost_points} needed for ${esc(rwb.reward_name)}</p>
+    ${bz.logo_url || bz.offer_image_url ? `<div style="display:flex;gap:12px;align-items:center;margin-bottom:12px">
+      ${bz.logo_url ? `<img src="${esc(bz.logo_url)}" alt="" style="width:64px;height:64px;border-radius:14px;object-fit:cover;background:var(--surface2);flex-shrink:0">` : ''}
+      ${bz.offer_image_url ? `<img src="${esc(bz.offer_image_url)}" alt="" style="flex:1;min-width:0;height:96px;border-radius:14px;object-fit:cover;background:var(--surface2)">` : ''}
+    </div>` : ''}
+    ${bz.offer_title ? `<div class="reward-box" style="border-color:rgba(234,179,8,.45);background:rgba(234,179,8,.08)"><h3 style="color:var(--gold)">🎁 ${esc(bz.offer_title)}</h3><p style="margin:0">Earn ${rwb.reward_cost_points} pts here to unlock</p></div>` : ''}
+    ${bz.description ? `<p style="font-size:14px;line-height:1.5;color:var(--text);margin:0 0 12px">${esc(bz.description)}</p>` : ''}
+    ${bz.hours ? `<div class="row"><span style="color:var(--muted)">Hours</span><span>${esc(bz.hours)}</span></div>` : ''}
+    ${tel ? `<div class="row"><span style="color:var(--muted)">Phone</span><a href="tel:${tel}" style="color:var(--accent);text-decoration:none">${esc(bz.business_phone)}</a></div>` : ''}
+    ${site ? `<div class="row"><span style="color:var(--muted)">Website</span><a href="${esc(site)}" target="_blank" style="color:var(--accent);text-decoration:none">${esc(site.replace(/^https?:\/\//, ''))}</a></div>` : ''}
+    <p class="fine" style="margin:10px 0;text-align:left">You have <b style="color:var(--text)">${bb ? bb.balance : 0} pts</b> at this business · ${rwb.reward_cost_points} needed for ${esc(rwb.reward_name)}</p>
     <div class="stat-grid">
       <div class="stat"><b style="color:${c}">+${n.point_value}</b><span>points</span></div>
       <div class="stat"><b style="color:${c}">${esc(n.token_type)}</b><span>${esc(TYPE_NAMES[n.token_type] || '')}</span></div>
