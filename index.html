@@ -159,6 +159,10 @@
 
     /* sheets */
     .sheet-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 50; display: flex; align-items: flex-end; }
+    .vid-bg { position: fixed; inset: 0; background: #000; z-index: 60; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .vid-bg video { width: 100%; max-height: 100%; object-fit: contain; }
+    .vid-skip { position: absolute; top: calc(14px + env(safe-area-inset-top)); right: 14px; background: rgba(255,255,255,.18); color: #fff; border: 1px solid rgba(255,255,255,.4); border-radius: 20px; padding: 8px 14px; font-weight: 700; font-size: 13px; }
+    .vid-name { position: absolute; top: calc(16px + env(safe-area-inset-top)); left: 16px; color: #fff; font-weight: 700; font-size: 15px; text-shadow: 0 1px 4px #000; }
     .sheet { width: 100%; max-height: 85vh; overflow-y: auto; background: var(--surface); border-top: 1px solid var(--border); border-radius: 20px 20px 0 0; padding: 18px 18px calc(24px + var(--safe-bottom)); }
     .sheet h2 { font-size: 18px; font-weight: 800; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
     .sheet h2 button { background: none; border: none; color: var(--muted); font-size: 22px; }
@@ -270,7 +274,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v20';
+const BUILD = 'v21';
 const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_-BhG4wJldST1w9mtVfyRDg_afXUM6hE';
 const MAPBOX_TOKEN  = 'pk.eyJ1IjoiY2hhaW55MTIzIiwiYSI6ImNtbmV4b3BqYzA0aGIycHB0c3ZndWJvOHoifQ.AMfDgzCfpDEOWhA_M7lIQQ';
@@ -892,7 +896,7 @@ function toast(kind, icon, main, sub) {
 
 /* ---------------- Sheets ---------------- */
 function setNav(which) { ['map','rewards','history','profile'].forEach(k => $('nav-' + k).classList.toggle('active', k === which)); }
-function closeSheet() { $('sheet-root').innerHTML = ''; setNav('map'); }
+function closeSheet() { endIntro(); $('sheet-root').innerHTML = ''; setNav('map'); }
 function sheet(title, subtitle, bodyHtml) {
   $('sheet-root').innerHTML = `<div class="sheet-bg" onclick="if(event.target===this)closeSheet()">
     <div class="sheet"><h2>${esc(title)}<button onclick="closeSheet()">✕</button></h2>
@@ -930,6 +934,21 @@ function sheetAd(n) {
   v.play().catch(() => {});
 }
 
+const introSeen = {};
+function playIntro(n, bz) {
+  const bid = n.campaigns?.business_id;
+  introSeen[bid] = true;
+  const old = $('vid-root'); if (old) old.remove();
+  const wrap = document.createElement('div'); wrap.id = 'vid-root'; wrap.className = 'vid-bg';
+  wrap.innerHTML = `<div class="vid-name">${esc(n.campaigns?.business_name || '')}</div><button class="vid-skip" onclick="endIntro()">Skip ▸</button>
+    <video id="intro-v" src="${esc(bz.intro_video_url)}" playsinline autoplay preload="auto"></video>`;
+  document.body.appendChild(wrap);
+  const v = $('intro-v');
+  v.addEventListener('ended', endIntro);
+  v.addEventListener('error', endIntro);
+  v.play().catch(() => { v.muted = true; v.play().catch(endIntro); });
+}
+function endIntro() { const w = $('vid-root'); if (w) { try { $('intro-v').pause(); } catch (e) {} w.remove(); } }
 function sheetToken(n) {
   const c = COLORS[n.token_type] || '#00D4FF';
   const d = lastPos ? Math.round(distM(lastPos.lat, lastPos.lng, n.lat, n.lng)) : null;
@@ -942,6 +961,7 @@ function sheetToken(n) {
   const bb = balances.find(x => x.business_id === n.campaigns?.business_id), rwb = rewardFor(n.campaigns?.business_id);
   const bz = bizInfo[n.campaigns?.business_id] || {};
   if (!bizInfo[n.campaigns?.business_id] && n.campaigns?.business_id) loadBizInfo(n.campaigns.business_id).then(() => { if ($('sheet-body')) sheetToken(n); });
+  if (bz.intro_video_url && !introSeen[n.campaigns?.business_id]) playIntro(n, bz);
   const tel = (bz.business_phone || '').replace(/[^0-9+]/g, '');
   const site = bz.business_website ? (bz.business_website.startsWith('http') ? bz.business_website : 'https://' + bz.business_website) : '';
   sheet(n.campaigns?.business_name || 'Token', n.campaigns?.business_address || '', `
@@ -949,6 +969,7 @@ function sheetToken(n) {
       ${bz.logo_url ? `<img src="${esc(bz.logo_url)}" alt="" style="width:64px;height:64px;border-radius:14px;object-fit:cover;background:var(--surface2);flex-shrink:0">` : ''}
       ${bz.offer_image_url ? `<img src="${esc(bz.offer_image_url)}" alt="" style="flex:1;min-width:0;height:96px;border-radius:14px;object-fit:cover;background:var(--surface2)">` : ''}
     </div>` : ''}
+    ${bz.intro_video_url ? `<button class="btn btn-ghost" style="margin:0 0 12px" onclick="introSeen['${n.campaigns?.business_id}']=false;playIntro(nodes.find(x=>x.id==='${n.id}'),bizInfo['${n.campaigns?.business_id}'])">▶ Watch ${esc(n.campaigns?.business_name || 'the')} video</button>` : ''}
     ${bz.offer_title ? `<div class="reward-box" style="border-color:rgba(234,179,8,.45);background:rgba(234,179,8,.08)"><h3 style="color:var(--gold)">🎁 ${esc(bz.offer_title)}</h3><p style="margin:0">Earn ${rwb.reward_cost_points} pts here to unlock</p></div>` : ''}
     ${bz.description ? `<p style="font-size:14px;line-height:1.5;color:var(--text);margin:0 0 12px">${esc(bz.description)}</p>` : ''}
     ${bz.hours ? `<div class="row"><span style="color:var(--muted)">Hours</span><span>${esc(bz.hours)}</span></div>` : ''}
