@@ -270,7 +270,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v19';
+const BUILD = 'v20';
 const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_-BhG4wJldST1w9mtVfyRDg_afXUM6hE';
 const MAPBOX_TOKEN  = 'pk.eyJ1IjoiY2hhaW55MTIzIiwiYSI6ImNtbmV4b3BqYzA0aGIycHB0c3ZndWJvOHoifQ.AMfDgzCfpDEOWhA_M7lIQQ';
@@ -477,7 +477,7 @@ function initMap() {
 
 async function loadNodes() {
   const { data, error } = await sb.from('token_nodes')
-    .select('id,token_type,point_value,latitude,longitude,remaining,is_active,campaign_id,campaigns(business_id,business_name,business_address,ad_title,ad_video_url,ad_link_url,ad_paused,ad_no_credit)')
+    .select('id,token_type,point_value,latitude,longitude,remaining,is_active,campaign_id,campaigns(business_id,business_name,business_address,ad_title,ad_video_url,ad_link_url,ad_description,ad_paused,ad_no_credit)')
     .eq('is_active', true).eq('is_demo', WORLD).or('remaining.gt.0,token_type.eq.AD');
   if (error) { console.warn(error); return; }
   nodes = (data || []).filter(n => !isAd(n) || (n.campaigns && n.campaigns.ad_video_url && !n.campaigns.ad_paused && !n.campaigns.ad_no_credit)).map(n => ({ ...n, lat: +n.latitude, lng: +n.longitude }));
@@ -917,9 +917,7 @@ function sheetAd(n) {
   sheet(c.ad_title || c.business_name || 'Ad', c.business_name ? `${c.business_name}${c.business_address ? ' · ' + c.business_address : ''}` : '', `
     <video id="adv" class="adv" src="${esc(c.ad_video_url)}" playsinline autoplay controls preload="metadata"></video>
     <p class="fine" style="margin:8px 0 12px;text-align:left" id="ad-note">Sponsored · free to watch, no points</p>
-    ${bz.logo_url || bz.description ? `<div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:12px">
-      ${bz.logo_url ? `<img src="${esc(bz.logo_url)}" alt="" style="width:48px;height:48px;border-radius:12px;object-fit:cover;background:var(--surface2);flex-shrink:0">` : ''}
-      ${bz.description ? `<p style="font-size:14px;line-height:1.5;color:var(--text);margin:0">${esc(bz.description)}</p>` : ''}</div>` : ''}
+    ${c.ad_description ? `<p style="font-size:14px;line-height:1.5;color:var(--text);margin:0 0 12px;white-space:pre-wrap">${esc(c.ad_description)}</p>` : ''}
     ${link ? `<a class="btn btn-primary" style="display:block;text-align:center;text-decoration:none" href="${esc(link)}" target="_blank" rel="noopener">Learn more ↗</a>` : ''}
     ${tel ? `<a class="btn btn-ghost" style="display:block;text-align:center;text-decoration:none;margin-top:10px" href="tel:${tel}">📞 Call ${esc(bz.business_phone)}</a>` : ''}
     <button class="btn btn-ghost" style="margin-top:10px" onclick="startNav('${n.id}')">🧭 Navigate here</button>`);
