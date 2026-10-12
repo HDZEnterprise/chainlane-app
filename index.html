@@ -153,6 +153,8 @@
     .tok { width: 40px; height: 40px; border-radius: 50%; border: 3px solid #fff; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; color: #fff; cursor: pointer; transition: transform 0.2s; }
     .tok.cool { opacity: 0.35; filter: grayscale(0.7); }
     .tok.near { transform: scale(1.15); }
+    .tok.ad { font-size: 14px; border-color: #bfdbfe; }
+    .adv { width: 100%; max-height: 62vh; background: #000; border-radius: 16px; display: block; object-fit: contain; }
 
     /* sheets */
     .sheet-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 50; display: flex; align-items: flex-end; }
@@ -267,7 +269,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v17';
+const BUILD = 'v18';
 const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_-BhG4wJldST1w9mtVfyRDg_afXUM6hE';
 const MAPBOX_TOKEN  = 'pk.eyJ1IjoiY2hhaW55MTIzIiwiYSI6ImNtbmV4b3BqYzA0aGIycHB0c3ZndWJvOHoifQ.AMfDgzCfpDEOWhA_M7lIQQ';
@@ -280,8 +282,9 @@ let voiceOn = localStorage.getItem('cl_voice') !== 'off';
 const fmtDist = m => m < 0.1*MI ? `${Math.round(m/FT/10)*10} ft` : `${(m/MI).toFixed(m < 10*MI ? 1 : 0)} mi`;
 const COOLDOWN_MS      = 12 * 60 * 60 * 1000;
 const DEFAULT_CENTER   = [-95.3698, 29.7604]; // Houston
-const COLORS = { MR: '#F97316', MMR: '#A855F7', SR: '#EAB308', GR: '#22C55E' };
-const TYPE_NAMES = { MR: 'Main Road', MMR: 'Mini Main Road', SR: 'Secret Road', GR: 'Grand Road' };
+const COLORS = { MR: '#F97316', MMR: '#A855F7', SR: '#EAB308', GR: '#22C55E', AD: '#3B82F6' };
+const TYPE_NAMES = { MR: 'Main Road', MMR: 'Mini Main Road', SR: 'Secret Road', GR: 'Grand Road', AD: 'Ad' };
+const isAd = n => n && n.token_type === 'AD';
 const PROMO_REASONS = { invalid_code: 'That code is not valid', expired: 'That code has expired', code_used_up: 'That code has reached its limit', already_used: 'You already used this code' };
 const REASONS = {
   not_subscribed: 'Subscribe to collect tokens',
@@ -473,12 +476,13 @@ function initMap() {
 
 async function loadNodes() {
   const { data, error } = await sb.from('token_nodes')
-    .select('id,token_type,point_value,latitude,longitude,remaining,is_active,campaign_id,campaigns(business_id,business_name,business_address)')
-    .eq('is_active', true).eq('is_demo', WORLD).gt('remaining', 0);
+    .select('id,token_type,point_value,latitude,longitude,remaining,is_active,campaign_id,campaigns(business_id,business_name,business_address,ad_title,ad_video_url,ad_link_url,ad_paused,ad_no_credit)')
+    .eq('is_active', true).eq('is_demo', WORLD).or('remaining.gt.0,token_type.eq.AD');
   if (error) { console.warn(error); return; }
-  nodes = (data || []).map(n => ({ ...n, lat: +n.latitude, lng: +n.longitude }));
+  nodes = (data || []).filter(n => !isAd(n) || (n.campaigns && n.campaigns.ad_video_url && !n.campaigns.ad_paused && !n.campaigns.ad_no_credit)).map(n => ({ ...n, lat: +n.latitude, lng: +n.longitude }));
   [...new Set(nodes.map(n => n.campaigns?.business_id).filter(Boolean))].forEach(id => { if (!bizInfo[id]) loadBizInfo(id); });
-  $('near-count').textContent = `${nodes.length} token${nodes.length === 1 ? '' : 's'} on map`;
+  const nt = nodes.filter(n => !isAd(n)).length, na = nodes.length - nt;
+  $('near-count').textContent = `${nt} token${nt === 1 ? '' : 's'}${na ? ` · ${na} ad${na === 1 ? '' : 's'}` : ''} on map`;
   drawMarkers();
 }
 
@@ -491,7 +495,8 @@ function drawMarkers() {
       el.className = 'tok';
       el.style.background = COLORS[n.token_type] || '#00D4FF';
       el.style.boxShadow = `0 0 14px ${COLORS[n.token_type] || '#00D4FF'}`;
-      el.textContent = `${n.point_value}`;
+      el.textContent = isAd(n) ? '▶' : `${n.point_value}`;
+      if (isAd(n)) el.classList.add('ad');
       el.addEventListener('click', () => openSheet('token', n));
       markers[n.id] = new mapboxgl.Marker({ element: el }).setLngLat([n.lng, n.lat]).addTo(map);
     }
@@ -564,6 +569,7 @@ function onPos(pos) {
   const prev = prevPos; prevPos = { lat, lng, accuracy, t: Date.now() };
 
   nodes.forEach(n => {
+    if (isAd(n)) return;
     const d = distM(lat, lng, n.lat, n.lng);
     const el = markers[n.id]?.getElement();
     if (el) el.classList.toggle('near', d <= 150);
@@ -839,7 +845,7 @@ function sideOf(lat, lng, heading, tLat, tLng) {
 }
 function checkApproach(lat, lng, heading) {
   let best = null, bestD = Infinity;
-  nodes.forEach(n => { if (realCooldown(n.id)) return; const d = distM(lat, lng, n.lat, n.lng); if (d < bestD) { bestD = d; best = n; } });
+  nodes.forEach(n => { if (isAd(n) || realCooldown(n.id)) return; const d = distM(lat, lng, n.lat, n.lng); if (d < bestD) { bestD = d; best = n; } });
   const el = $('approach');
   if (nav || !best || bestD > APPROACH_M || bestD <= COLLECT_RADIUS_M) { el.classList.remove('on'); Object.values(markers).forEach(m => m.getElement().classList.remove('pulse')); return; }
   const name = best.campaigns?.business_name || 'Token';
@@ -892,11 +898,36 @@ function sheet(title, subtitle, bodyHtml) {
 }
 
 async function openSheet(which, arg) {
-  if (which === 'token') return sheetToken(arg);
+  if (which === 'token') return isAd(arg) ? sheetAd(arg) : sheetToken(arg);
   setNav(which);
   if (which === 'rewards') return sheetRewards();
   if (which === 'history') return sheetHistory();
   if (which === 'profile') return sheetProfile();
+}
+
+let adCounted = {};
+function sheetAd(n) {
+  const c = n.campaigns || {};
+  const bz = bizInfo[c.business_id] || {};
+  if (!bizInfo[c.business_id] && c.business_id) loadBizInfo(c.business_id).then(() => { if ($('sheet-body') && $('adv')) sheetAd(n); });
+  const link = c.ad_link_url ? (c.ad_link_url.startsWith('http') ? c.ad_link_url : 'https://' + c.ad_link_url) : '';
+  const tel = (bz.business_phone || '').replace(/[^0-9+]/g, '');
+  sheet(c.ad_title || c.business_name || 'Ad', c.business_name ? `${c.business_name}${c.business_address ? ' · ' + c.business_address : ''}` : '', `
+    <video id="adv" class="adv" src="${esc(c.ad_video_url)}" playsinline autoplay controls preload="metadata"></video>
+    <p class="fine" style="margin:8px 0 12px;text-align:left" id="ad-note">Sponsored · free to watch, no points</p>
+    ${bz.logo_url || bz.description ? `<div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:12px">
+      ${bz.logo_url ? `<img src="${esc(bz.logo_url)}" alt="" style="width:48px;height:48px;border-radius:12px;object-fit:cover;background:var(--surface2);flex-shrink:0">` : ''}
+      ${bz.description ? `<p style="font-size:14px;line-height:1.5;color:var(--text);margin:0">${esc(bz.description)}</p>` : ''}</div>` : ''}
+    ${link ? `<a class="btn btn-primary" style="display:block;text-align:center;text-decoration:none" href="${esc(link)}" target="_blank" rel="noopener">Learn more ↗</a>` : ''}
+    ${tel ? `<a class="btn btn-ghost" style="display:block;text-align:center;text-decoration:none;margin-top:10px" href="tel:${tel}">📞 Call ${esc(bz.business_phone)}</a>` : ''}
+    <button class="btn btn-ghost" style="margin-top:10px" onclick="startNav('${n.id}')">🧭 Navigate here</button>`);
+  const v = $('adv');
+  v.addEventListener('timeupdate', async () => {
+    if (adCounted[n.id] || v.currentTime < 5) return;
+    adCounted[n.id] = true;
+    try { await sb.rpc('record_ad_view', { p_node_id: n.id }); } catch (e) {}
+  });
+  v.play().catch(() => {});
 }
 
 function sheetToken(n) {
