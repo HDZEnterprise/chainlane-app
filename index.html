@@ -274,7 +274,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v21';
+const BUILD = 'v22';
 const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_-BhG4wJldST1w9mtVfyRDg_afXUM6hE';
 const MAPBOX_TOKEN  = 'pk.eyJ1IjoiY2hhaW55MTIzIiwiYSI6ImNtbmV4b3BqYzA0aGIycHB0c3ZndWJvOHoifQ.AMfDgzCfpDEOWhA_M7lIQQ';
@@ -924,7 +924,8 @@ function sheetAd(n) {
     ${c.ad_description ? `<p style="font-size:14px;line-height:1.5;color:var(--text);margin:0 0 12px;white-space:pre-wrap">${esc(c.ad_description)}</p>` : ''}
     ${link ? `<a class="btn btn-primary" style="display:block;text-align:center;text-decoration:none" href="${esc(link)}" target="_blank" rel="noopener">Learn more ↗</a>` : ''}
     ${tel ? `<a class="btn btn-ghost" style="display:block;text-align:center;text-decoration:none;margin-top:10px" href="tel:${tel}">📞 Call ${esc(bz.business_phone)}</a>` : ''}
-    <button class="btn btn-ghost" style="margin-top:10px" onclick="startNav('${n.id}')">🧭 Navigate here</button>`);
+    <button class="btn btn-ghost" style="margin-top:10px" onclick="startNav('${n.id}')">🧭 Navigate here</button>
+    <button class="btn btn-ghost" style="margin-top:10px" onclick="try{$('adv').pause()}catch(e){};closeSheet();map.flyTo({center:[${n.lng},${n.lat}],zoom:17,pitch:0,duration:900})">📍 See location</button>`);
   const v = $('adv');
   v.addEventListener('timeupdate', async () => {
     if (adCounted[n.id] || v.currentTime < 5) return;
