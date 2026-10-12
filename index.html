@@ -153,7 +153,8 @@
     .tok { width: 40px; height: 40px; border-radius: 50%; border: 3px solid #fff; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; color: #fff; cursor: pointer; transition: transform 0.2s; }
     .tok.cool { opacity: 0.35; filter: grayscale(0.7); }
     .tok.near { transform: scale(1.15); }
-    .tok.ad { font-size: 14px; border-color: #bfdbfe; }
+    .tok.ad { font-size: 14px; border-color: #bfdbfe; background-size: cover; background-position: center; }
+    .tok.ad.logo { color: transparent; }
     .adv { width: 100%; max-height: 62vh; background: #000; border-radius: 16px; display: block; object-fit: contain; }
 
     /* sheets */
@@ -269,7 +270,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v18';
+const BUILD = 'v19';
 const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_-BhG4wJldST1w9mtVfyRDg_afXUM6hE';
 const MAPBOX_TOKEN  = 'pk.eyJ1IjoiY2hhaW55MTIzIiwiYSI6ImNtbmV4b3BqYzA0aGIycHB0c3ZndWJvOHoifQ.AMfDgzCfpDEOWhA_M7lIQQ';
@@ -312,7 +313,7 @@ let nodes = [];
 let watchId = null, wakeLock = null, lastPos = null;
 let localCooldown = {};          // nodeId -> timestamp when it frees up
 let balances = [], rewardsList = [], focusBiz = null, bizInfo = {};
-async function loadBizInfo(id) { const { data } = await sb.from('business_public').select('*').eq('id', id).maybeSingle(); bizInfo[id] = data || {}; }
+async function loadBizInfo(id) { const { data } = await sb.from('business_public').select('*').eq('id', id).maybeSingle(); bizInfo[id] = data || {}; if (data?.logo_url && typeof drawMarkers === 'function' && Object.keys(markers).length) drawMarkers(); }
 let WORLD = false;   // set from the account: showcase accounts live in the sample token set   // per-business points; focusBiz = business the top bar is showing
 let inFlight = new Set();        // nodes currently being collected
 let deviceId = localStorage.getItem('cl_device');
@@ -501,6 +502,7 @@ function drawMarkers() {
       markers[n.id] = new mapboxgl.Marker({ element: el }).setLngLat([n.lng, n.lat]).addTo(map);
     }
     markers[n.id].getElement().classList.toggle('cool', realCooldown(n.id));
+    if (isAd(n)) { const lg = bizInfo[n.campaigns?.business_id]?.logo_url, el = markers[n.id].getElement(); if (lg && !el.classList.contains('logo')) { el.style.backgroundImage = `url("${lg}")`; el.classList.add('logo'); } }
   });
   Object.keys(markers).forEach(id => { if (!seen.has(id)) { markers[id].remove(); delete markers[id]; } });
 }
