@@ -80,6 +80,16 @@
     .progress > div { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.4s; }
     .labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
     .labels span:last-child { color: var(--accent); }
+    #near-count { cursor: pointer; text-decoration: underline dotted; }
+    .near-list { display: none; margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
+    .near-list.on { display: block; }
+    .near-row { display: flex; align-items: center; gap: 10px; padding: 8px 2px; border-bottom: 1px solid var(--border); cursor: pointer; }
+    .near-row:last-child { border-bottom: 0; }
+    .near-logo { width: 38px; height: 38px; border-radius: 50%; flex-shrink: 0; border: 2px solid #fff; background-size: cover; background-position: center; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; color: #fff; }
+    .near-main { flex: 1; min-width: 0; }
+    .near-name { font-size: 14px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .near-sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .near-dist { font-size: 13px; font-weight: 700; color: var(--accent); flex-shrink: 0; }
 
     .banner { display: flex; align-items: center; gap: 10px; }
     .banner.sub { background: rgba(0,212,255,0.08); border-color: rgba(0,212,255,0.3); }
@@ -228,8 +238,9 @@
         <span class="pill idle" id="track-pill"><span class="pill-dot"></span><span id="track-text">Starting…</span></span>
       </div>
       <div class="progress"><div id="prog"></div></div>
-      <div class="labels"><span id="to-next">100 pts to next reward</span><span id="near-count">0 tokens on map</span></div>
-      <div class="labels" style="margin-top:4px"><span id="online" style="color:var(--success)">● — drivers online</span></div>
+      <div class="labels"><span id="to-next">100 pts to next reward</span><span id="near-count" onclick="toggleNear()">0 tokens on map</span></div>
+      <div class="labels" style="margin-top:4px"><span id="online" style="color:var(--success)">● — drivers online</span><span id="near-toggle" onclick="toggleNear()" style="cursor:pointer">Nearest ▾</span></div>
+      <div class="near-list" id="near-list"></div>
     </div>
 
     <div class="card banner sub hidden" id="sub-banner">
@@ -274,7 +285,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v22';
+const BUILD = 'v23';
 const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_-BhG4wJldST1w9mtVfyRDg_afXUM6hE';
 const MAPBOX_TOKEN  = 'pk.eyJ1IjoiY2hhaW55MTIzIiwiYSI6ImNtbmV4b3BqYzA0aGIycHB0c3ZndWJvOHoifQ.AMfDgzCfpDEOWhA_M7lIQQ';
@@ -488,7 +499,7 @@ async function loadNodes() {
   [...new Set(nodes.map(n => n.campaigns?.business_id).filter(Boolean))].forEach(id => { if (!bizInfo[id]) loadBizInfo(id); });
   const nt = nodes.filter(n => !isAd(n)).length, na = nodes.length - nt;
   $('near-count').textContent = `${nt} token${nt === 1 ? '' : 's'}${na ? ` · ${na} ad${na === 1 ? '' : 's'}` : ''} on map`;
-  drawMarkers();
+  drawMarkers(); renderNear(true);
 }
 
 function drawMarkers() {
@@ -562,6 +573,7 @@ function onPos(pos) {
   if (nav && puck && !puck._map) puck.setLngLat([lng, lat]).addTo(map);
   updateNavLive(lat, lng, pos.coords.heading);
   checkApproach(lat, lng, pos.coords.heading);
+  renderNear();
   if (nav) {
     const c = (nav.snapped && !nav.offCount) ? [nav.snapped.lng, nav.snapped.lat] : [lng, lat];
     const b = (mph > 3 && pos.coords.heading != null) ? pos.coords.heading : map.getBearing();
@@ -849,6 +861,29 @@ function sideOf(lat, lng, heading, tLat, tLng) {
   const rel = ((bearing(lat, lng, tLat, tLng) - heading) + 360) % 360;
   return rel > 20 && rel < 160 ? 'on your right' : rel > 200 && rel < 340 ? 'on your left' : 'straight ahead';
 }
+/* ---------------- Nearest tokens list ---------------- */
+let nearOpen = false, nearLast = 0;
+function toggleNear() { nearOpen = !nearOpen; $('near-list').classList.toggle('on', nearOpen); $('near-toggle').textContent = nearOpen ? 'Nearest ▴' : 'Nearest ▾'; if (nearOpen) renderNear(true); }
+function renderNear(force) {
+  if (!nearOpen) return;
+  if (!force && Date.now() - nearLast < 2000) return;
+  nearLast = Date.now();
+  const el = $('near-list');
+  if (!lastPos) { el.innerHTML = '<div class="near-sub" style="padding:6px 2px">Waiting for your location…</div>'; return; }
+  const top = nodes.map(n => ({ n, d: distM(lastPos.lat, lastPos.lng, n.lat, n.lng) })).sort((a, b) => a.d - b.d).slice(0, 5);
+  if (!top.length) { el.innerHTML = '<div class="near-sub" style="padding:6px 2px">No tokens on the map yet.</div>'; return; }
+  el.innerHTML = top.map(({ n, d }) => {
+    const bid = n.campaigns?.business_id, bz = bizInfo[bid] || {};
+    if (!bizInfo[bid] && bid) loadBizInfo(bid).then(() => renderNear(true));
+    const c = COLORS[n.token_type] || '#00D4FF';
+    const logo = bz.logo_url ? `style="background-image:url('${esc(bz.logo_url)}');background-color:${c}"` : `style="background:${c}"`;
+    const sub = isAd(n) ? `▶ ${esc(n.campaigns?.ad_title || 'Video ad')}` : `🎁 ${esc(bz.offer_title || rewardFor(bid).reward_name)} · +${n.point_value} pts`;
+    return `<div class="near-row" onclick="openSheet('token', nodes.find(x => x.id === '${n.id}'))">
+      <div class="near-logo" ${logo}>${bz.logo_url ? '' : (isAd(n) ? '▶' : esc(n.token_type))}</div>
+      <div class="near-main"><div class="near-name">${esc(n.campaigns?.business_name || 'Token')}</div><div class="near-sub">${sub}</div></div>
+      <div class="near-dist">${fmtDist(d)}</div></div>`; }).join('');
+}
+
 function checkApproach(lat, lng, heading) {
   let best = null, bestD = Infinity;
   nodes.forEach(n => { if (isAd(n) || realCooldown(n.id)) return; const d = distM(lat, lng, n.lat, n.lng); if (d < bestD) { bestD = d; best = n; } });
