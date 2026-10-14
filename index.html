@@ -219,6 +219,17 @@
     .fcard-body { padding: 10px 12px 12px; }
     .fcard-row { display: flex; gap: 8px; margin-top: 10px; }
     .fcard-row .btn { flex: 1; margin: 0; padding: 10px; font-size: 13px; }
+    .feed { position: fixed; inset: 0; z-index: 55; background: #000; overflow-y: auto; scroll-snap-type: y mandatory; -webkit-overflow-scrolling: touch; }
+    .fslide { position: relative; height: 100%; height: 100dvh; scroll-snap-align: start; scroll-snap-stop: always; display: flex; align-items: center; justify-content: center; background: #000; }
+    .fslide video { width: 100%; height: 100%; object-fit: contain; }
+    .ftop { position: absolute; top: calc(12px + env(safe-area-inset-top)); left: 12px; right: 12px; display: flex; align-items: center; gap: 10px; }
+    .ftop .x { margin-left: auto; background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.4); color: #fff; border-radius: 20px; padding: 8px 14px; font-weight: 800; }
+    .fmute { position: absolute; right: 14px; bottom: calc(190px + env(safe-area-inset-bottom)); background: rgba(0,0,0,.55); color: #fff; border: 1px solid rgba(255,255,255,.4); border-radius: 50%; width: 44px; height: 44px; font-size: 18px; }
+    .fbottom { position: absolute; left: 0; right: 0; bottom: 0; padding: 60px 16px calc(18px + env(safe-area-inset-bottom)); background: linear-gradient(transparent, rgba(0,0,0,.85)); color: #fff; }
+    .fbottom .hcard-logo { width: 40px; height: 40px; }
+    .fbottom h3 { font-size: 20px; font-weight: 800; margin: 8px 0 2px; text-shadow: 0 1px 4px #000; }
+    .fbottom p { font-size: 13px; color: #d6dbe6; margin: 0 0 10px; }
+    .fbottom .fcard-row .btn { padding: 12px; font-size: 14px; }
   </style>
 </head>
 <body>
@@ -312,7 +323,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v26';
+const BUILD = 'v27';
 const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_-BhG4wJldST1w9mtVfyRDg_afXUM6hE';
 const MAPBOX_TOKEN  = 'pk.eyJ1IjoiY2hhaW55MTIzIiwiYSI6ImNtbmV4b3BqYzA0aGIycHB0c3ZndWJvOHoifQ.AMfDgzCfpDEOWhA_M7lIQQ';
@@ -959,7 +970,7 @@ function toast(kind, icon, main, sub) {
 
 /* ---------------- Sheets ---------------- */
 function setNav(which) { ['home','map','rewards','history','profile'].forEach(k => $('nav-' + k).classList.toggle('active', k === which)); }
-function closeSheet() { endIntro(); $('sheet-root').innerHTML = ''; setNav('map'); }
+function closeSheet() { endIntro(); const f = $('feed'); if (f) { f.querySelectorAll('video').forEach(v => v.pause()); f.remove(); } $('sheet-root').innerHTML = ''; setNav('map'); }
 function sheet(title, subtitle, bodyHtml) {
   $('sheet-root').innerHTML = `<div class="sheet-bg" onclick="if(event.target===this)closeSheet()">
     <div class="sheet"><h2>${esc(title)}<button onclick="closeSheet()">✕</button></h2>
@@ -1061,7 +1072,9 @@ function sheetHome() {
     <div class="chips" id="home-chips"></div><div id="home-list"></div>`);
   document.querySelector('.sheet').classList.add('tall');
   renderHome();
+  if (!feedSeen) { feedSeen = true; openFeed(); }
 }
+let feedSeen = false;
 function homeEntries() {
   const by = {};
   nodes.forEach(n => {
@@ -1072,15 +1085,14 @@ function homeEntries() {
   });
   return Object.values(by);
 }
-let homeTab = 'feed';
-function setHomeTab(t) { homeTab = t; renderHome(); }
+let homeTab = 'listings';
+function setHomeTab(t) { homeTab = t; if (t === 'feed') { openFeed(); return; } renderHome(); }
 function renderHome() {
   const chips = $('home-chips'); if (!chips) return;
   $('ht-listings').classList.toggle('on', homeTab === 'listings'); $('ht-feed').classList.toggle('on', homeTab === 'feed');
   chips.style.display = homeTab === 'feed' ? 'none' : '';
   const q = homeQ.trim().toLowerCase();
   let list = homeEntries().map(e => ({ ...e, bz: bizInfo[e.bid] || {} }));
-  if (homeTab === 'feed') { renderFeed(list, q); return; }
   chips.innerHTML = [...CATS, 'Sponsored'].map(c => `<button class="chip ${c === homeCat ? 'on' : ''}" onclick="homeCat='${c}';renderHome()">${c}</button>`).join('');
   list = list.filter(e => homeCat === 'All' || (homeCat === 'Sponsored' ? isAd(e.n) : (e.bz.category || '') === homeCat));
   if (q) list = list.filter(e => [e.n.campaigns?.business_name, e.bz.offer_title, e.bz.tagline, e.bz.description, e.bz.category, e.n.campaigns?.ad_title].join(' ').toLowerCase().includes(q));
@@ -1102,28 +1114,47 @@ function renderHome() {
         <div class="hcard-sub">${ad ? 'Sponsored video · free to watch' : `Earn +${n.point_value} pts per drive-by · ${rewardFor(bz.id).reward_cost_points} pts unlocks it`}${bz.tagline ? ' · ' + esc(bz.tagline) : ''}</div></div></div>`; }).join('');
 }
 
-function renderFeed(list, q) {
-  // every video on the map: business intro videos + sponsored ads
-  let vids = list.filter(e => isAd(e.n) ? !!e.n.campaigns?.ad_video_url : !!e.bz.intro_video_url);
-  if (q) vids = vids.filter(e => [e.n.campaigns?.business_name, e.bz.offer_title, e.bz.tagline, e.n.campaigns?.ad_title, e.n.campaigns?.ad_description].join(' ').toLowerCase().includes(q));
+let feedObs = null, feedMuted = false;
+function feedItems() {
+  const list = homeEntries().map(e => ({ ...e, bz: bizInfo[e.bid] || {} }));
+  const vids = list.filter(e => isAd(e.n) ? !!e.n.campaigns?.ad_video_url : !!e.bz.intro_video_url);
   vids.sort((a, b) => (b.bz.featured ? 1 : 0) - (a.bz.featured ? 1 : 0) || (a.d ?? 1e12) - (b.d ?? 1e12));
-  const el = $('home-list');
-  if (!vids.length) { el.innerHTML = '<div class="empty">No videos yet. Businesses that add a video show up here.</div>'; return; }
-  el.innerHTML = vids.map(({ n, d, bz }) => {
+  return vids;
+}
+function openFeed() {
+  closeFeed();
+  const vids = feedItems();
+  if (!vids.length) { toast('info', '▶', 'No videos yet', 'Businesses that add a video show up in the feed.'); homeTab = 'listings'; renderHome(); return; }
+  const el = document.createElement('div'); el.id = 'feed'; el.className = 'feed';
+  el.innerHTML = vids.map(({ n, d, bz }, i) => {
     const ad = isAd(n), src = ad ? n.campaigns.ad_video_url : bz.intro_video_url;
     const title = ad ? (n.campaigns.ad_title || 'Video ad') : (bz.offer_title || rewardFor(bz.id).reward_name);
-    return `<div class="fcard">
-      <video src="${esc(src)}" playsinline controls preload="metadata" data-node="${n.id}" data-ad="${ad ? 1 : 0}" onplay="feedPlay(this)" ontimeupdate="feedTime(this)"></video>
-      <div class="fcard-body">
-        <div class="hcard-top" style="padding:0 0 6px"><div class="hcard-logo" ${bz.logo_url ? `style="background-image:url('${esc(bz.logo_url)}')"` : `style="background:${COLORS[n.token_type] || '#00D4FF'}"`}>${bz.logo_url ? '' : (ad ? '▶' : esc(n.token_type))}</div>
-          <div class="hcard-name">${esc(n.campaigns?.business_name || '')}</div><div class="hcard-dist">${d != null ? fmtDist(d) : ''}</div></div>
-        <div class="hcard-offer">${ad ? '' : '🎁 '}${esc(title)}</div>
-        <div class="hcard-sub">${ad ? 'Sponsored' : `+${n.point_value} pts per drive-by`}${bz.category ? ' · ' + esc(bz.category) : ''}${n.campaigns?.business_address ? ' · ' + esc(n.campaigns.business_address) : ''}</div>
-        <div class="fcard-row"><button class="btn btn-ghost" onclick="closeSheet();openSheet('token', nodes.find(x => x.id === '${n.id}'))">Details</button>
-          <button class="btn btn-primary" onclick="closeSheet();startNav('${n.id}')">🧭 Navigate</button></div>
+    return `<div class="fslide" data-i="${i}">
+      <video src="${esc(src)}" playsinline preload="${i < 2 ? 'auto' : 'metadata'}" data-node="${n.id}" data-ad="${ad ? 1 : 0}" ontimeupdate="feedTime(this)" onended="feedNext(${i})" onclick="feedToggle(this)"></video>
+      <div class="ftop"><span style="color:#fff;font-weight:800;text-shadow:0 1px 4px #000">${i + 1} / ${vids.length}</span><button class="x" onclick="closeFeed()">✕ Close</button></div>
+      <button class="fmute" onclick="feedMute()">${feedMuted ? '🔇' : '🔊'}</button>
+      <div class="fbottom">
+        <div class="hcard-top" style="padding:0"><div class="hcard-logo" ${bz.logo_url ? `style="background-image:url('${esc(bz.logo_url)}')"` : `style="background:${COLORS[n.token_type] || '#00D4FF'}"`}>${bz.logo_url ? '' : (ad ? '▶' : esc(n.token_type))}</div>
+          <div class="hcard-name" style="color:#fff">${esc(n.campaigns?.business_name || '')}</div><div class="hcard-dist">${d != null ? fmtDist(d) : ''}</div></div>
+        <h3>${ad ? '' : '🎁 '}${esc(title)}</h3>
+        <p>${ad ? 'Sponsored' : `+${n.point_value} pts per drive-by`}${bz.category ? ' · ' + esc(bz.category) : ''}${n.campaigns?.business_address ? ' · ' + esc(n.campaigns.business_address) : ''}</p>
+        <div class="fcard-row"><button class="btn btn-ghost" style="background:rgba(255,255,255,.12);color:#fff" onclick="closeFeed();closeSheet();openSheet('token', nodes.find(x => x.id === '${n.id}'))">Details</button>
+          <button class="btn btn-primary" onclick="closeFeed();closeSheet();startNav('${n.id}')">🧭 Navigate</button></div>
       </div></div>`; }).join('');
+  document.body.appendChild(el);
+  feedObs = new IntersectionObserver(entries => {
+    entries.forEach(en => {
+      const v = en.target.querySelector('video');
+      if (en.isIntersecting && en.intersectionRatio > 0.6) { v.muted = feedMuted; v.currentTime = 0; v.play().catch(() => { v.muted = true; feedMuted = true; el.querySelectorAll('.fmute').forEach(b => b.textContent = '🔇'); v.play().catch(() => {}); }); }
+      else { v.pause(); }
+    });
+  }, { root: el, threshold: [0.6] });
+  el.querySelectorAll('.fslide').forEach(sl => feedObs.observe(sl));
 }
-function feedPlay(v) { document.querySelectorAll('.fcard video').forEach(o => { if (o !== v) o.pause(); }); }
+function closeFeed() { const f = $('feed'); if (f) { f.querySelectorAll('video').forEach(v => v.pause()); f.remove(); } if (feedObs) { feedObs.disconnect(); feedObs = null; } homeTab = 'listings'; if ($('home-chips')) renderHome(); }
+function feedNext(i) { const f = $('feed'); if (!f) return; const nx = f.querySelector(`.fslide[data-i="${i + 1}"]`); if (nx) nx.scrollIntoView({ behavior: 'smooth' }); else f.querySelector('.fslide[data-i="0"]').scrollIntoView({ behavior: 'smooth' }); }
+function feedToggle(v) { if (v.paused) v.play().catch(() => {}); else v.pause(); }
+function feedMute() { feedMuted = !feedMuted; const f = $('feed'); if (!f) return; f.querySelectorAll('video').forEach(v => v.muted = feedMuted); f.querySelectorAll('.fmute').forEach(b => b.textContent = feedMuted ? '🔇' : '🔊'); }
 function feedTime(v) {
   if (v.dataset.ad !== '1' || adCounted[v.dataset.node] || v.currentTime < 5) return;
   adCounted[v.dataset.node] = true;
