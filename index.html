@@ -211,6 +211,14 @@
     .hcard-sub { font-size: 12px; color: var(--muted); }
     .hbadge { display: inline-block; padding: 3px 9px; border-radius: 12px; font-size: 11px; font-weight: 800; }
     .hfeat { background: rgba(234,179,8,.15); color: var(--gold); margin-left: 6px; }
+    .subtabs { display: flex; gap: 6px; margin-bottom: 10px; background: var(--surface2); border-radius: 12px; padding: 4px; }
+    .subtabs button { flex: 1; border: none; border-radius: 9px; padding: 9px; font-weight: 800; font-size: 14px; background: transparent; color: var(--muted); }
+    .subtabs button.on { background: var(--accent); color: #0a0e17; }
+    .fcard { border: 1px solid var(--border); border-radius: 16px; overflow: hidden; margin-bottom: 14px; background: var(--surface2); }
+    .fcard video { width: 100%; max-height: 70vh; background: #000; display: block; object-fit: contain; }
+    .fcard-body { padding: 10px 12px 12px; }
+    .fcard-row { display: flex; gap: 8px; margin-top: 10px; }
+    .fcard-row .btn { flex: 1; margin: 0; padding: 10px; font-size: 13px; }
   </style>
 </head>
 <body>
@@ -304,7 +312,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v24';
+const BUILD = 'v25';
 const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_-BhG4wJldST1w9mtVfyRDg_afXUM6hE';
 const MAPBOX_TOKEN  = 'pk.eyJ1IjoiY2hhaW55MTIzIiwiYSI6ImNtbmV4b3BqYzA0aGIycHB0c3ZndWJvOHoifQ.AMfDgzCfpDEOWhA_M7lIQQ';
@@ -1048,7 +1056,8 @@ function sheetToken(n) {
 const CATS = ['All','Dining','Auto','Beauty','Fitness','Health','Home Services','Retail','Real Estate','Events'];
 let homeCat = 'All', homeQ = '';
 function sheetHome() {
-  sheet('Home', '', `<input class="hsearch" id="home-q" placeholder="Search businesses, rewards…" value="${esc(homeQ)}" oninput="homeQ=this.value;renderHome()" />
+  sheet('Home', '', `<div class="subtabs"><button id="ht-listings" onclick="setHomeTab('listings')">Listings</button><button id="ht-feed" onclick="setHomeTab('feed')">▶ Feed</button></div>
+    <input class="hsearch" id="home-q" placeholder="Search businesses, rewards…" value="${esc(homeQ)}" oninput="homeQ=this.value;renderHome()" />
     <div class="chips" id="home-chips"></div><div id="home-list"></div>`);
   document.querySelector('.sheet').classList.add('tall');
   renderHome();
@@ -1057,17 +1066,23 @@ function homeEntries() {
   const by = {};
   nodes.forEach(n => {
     const bid = n.campaigns?.business_id; if (!bid) return;
+    const key = bid + (isAd(n) ? ':ad:' + n.campaign_id : ':brand');
     const d = lastPos ? distM(lastPos.lat, lastPos.lng, n.lat, n.lng) : null;
-    if (!by[bid] || (d != null && d < by[bid].d)) by[bid] = { n, d, bid };
+    if (!by[key] || (d != null && d < by[key].d)) by[key] = { n, d, bid };
   });
   return Object.values(by);
 }
+let homeTab = 'listings';
+function setHomeTab(t) { homeTab = t; renderHome(); }
 function renderHome() {
   const chips = $('home-chips'); if (!chips) return;
-  chips.innerHTML = CATS.map(c => `<button class="chip ${c === homeCat ? 'on' : ''}" onclick="homeCat='${c}';renderHome()">${c}</button>`).join('');
+  $('ht-listings').classList.toggle('on', homeTab === 'listings'); $('ht-feed').classList.toggle('on', homeTab === 'feed');
+  chips.style.display = homeTab === 'feed' ? 'none' : '';
   const q = homeQ.trim().toLowerCase();
   let list = homeEntries().map(e => ({ ...e, bz: bizInfo[e.bid] || {} }));
-  list = list.filter(e => homeCat === 'All' || (e.bz.category || '') === homeCat);
+  if (homeTab === 'feed') { renderFeed(list, q); return; }
+  chips.innerHTML = [...CATS, 'Sponsored'].map(c => `<button class="chip ${c === homeCat ? 'on' : ''}" onclick="homeCat='${c}';renderHome()">${c}</button>`).join('');
+  list = list.filter(e => homeCat === 'All' || (homeCat === 'Sponsored' ? isAd(e.n) : (e.bz.category || '') === homeCat));
   if (q) list = list.filter(e => [e.n.campaigns?.business_name, e.bz.offer_title, e.bz.tagline, e.bz.description, e.bz.category, e.n.campaigns?.ad_title].join(' ').toLowerCase().includes(q));
   list.sort((a, b) => (b.bz.featured ? 1 : 0) - (a.bz.featured ? 1 : 0) || (a.d ?? 1e12) - (b.d ?? 1e12));
   const el = $('home-list');
@@ -1085,6 +1100,34 @@ function renderHome() {
       <div class="hcard-body"><div class="hcard-cat">${esc(bz.category || (ad ? 'Sponsored' : 'Local business'))}</div>
         <div class="hcard-offer">${ad ? '▶ ' : '🎁 '}${esc(offer)}</div>
         <div class="hcard-sub">${ad ? 'Sponsored video · free to watch' : `Earn +${n.point_value} pts per drive-by · ${rewardFor(bz.id).reward_cost_points} pts unlocks it`}${bz.tagline ? ' · ' + esc(bz.tagline) : ''}</div></div></div>`; }).join('');
+}
+
+function renderFeed(list, q) {
+  // every video on the map: business intro videos + sponsored ads
+  let vids = list.filter(e => isAd(e.n) ? !!e.n.campaigns?.ad_video_url : !!e.bz.intro_video_url);
+  if (q) vids = vids.filter(e => [e.n.campaigns?.business_name, e.bz.offer_title, e.bz.tagline, e.n.campaigns?.ad_title, e.n.campaigns?.ad_description].join(' ').toLowerCase().includes(q));
+  vids.sort((a, b) => (b.bz.featured ? 1 : 0) - (a.bz.featured ? 1 : 0) || (a.d ?? 1e12) - (b.d ?? 1e12));
+  const el = $('home-list');
+  if (!vids.length) { el.innerHTML = '<div class="empty">No videos yet. Businesses that add a video show up here.</div>'; return; }
+  el.innerHTML = vids.map(({ n, d, bz }) => {
+    const ad = isAd(n), src = ad ? n.campaigns.ad_video_url : bz.intro_video_url;
+    const title = ad ? (n.campaigns.ad_title || 'Video ad') : (bz.offer_title || rewardFor(bz.id).reward_name);
+    return `<div class="fcard">
+      <video src="${esc(src)}" playsinline controls preload="metadata" data-node="${n.id}" data-ad="${ad ? 1 : 0}" onplay="feedPlay(this)" ontimeupdate="feedTime(this)"></video>
+      <div class="fcard-body">
+        <div class="hcard-top" style="padding:0 0 6px"><div class="hcard-logo" ${bz.logo_url ? `style="background-image:url('${esc(bz.logo_url)}')"` : `style="background:${COLORS[n.token_type] || '#00D4FF'}"`}>${bz.logo_url ? '' : (ad ? '▶' : esc(n.token_type))}</div>
+          <div class="hcard-name">${esc(n.campaigns?.business_name || '')}</div><div class="hcard-dist">${d != null ? fmtDist(d) : ''}</div></div>
+        <div class="hcard-offer">${ad ? '' : '🎁 '}${esc(title)}</div>
+        <div class="hcard-sub">${ad ? 'Sponsored' : `+${n.point_value} pts per drive-by`}${bz.category ? ' · ' + esc(bz.category) : ''}${n.campaigns?.business_address ? ' · ' + esc(n.campaigns.business_address) : ''}</div>
+        <div class="fcard-row"><button class="btn btn-ghost" onclick="closeSheet();openSheet('token', nodes.find(x => x.id === '${n.id}'))">Details</button>
+          <button class="btn btn-primary" onclick="closeSheet();startNav('${n.id}')">🧭 Navigate</button></div>
+      </div></div>`; }).join('');
+}
+function feedPlay(v) { document.querySelectorAll('.fcard video').forEach(o => { if (o !== v) o.pause(); }); }
+function feedTime(v) {
+  if (v.dataset.ad !== '1' || adCounted[v.dataset.node] || v.currentTime < 5) return;
+  adCounted[v.dataset.node] = true;
+  sb.rpc('record_ad_view', { p_node_id: v.dataset.node }).catch(() => {});
 }
 
 async function sheetRewards() {
