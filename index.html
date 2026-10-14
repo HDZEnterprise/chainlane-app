@@ -312,7 +312,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v25';
+const BUILD = 'v26';
 const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_-BhG4wJldST1w9mtVfyRDg_afXUM6hE';
 const MAPBOX_TOKEN  = 'pk.eyJ1IjoiY2hhaW55MTIzIiwiYSI6ImNtbmV4b3BqYzA0aGIycHB0c3ZndWJvOHoifQ.AMfDgzCfpDEOWhA_M7lIQQ';
@@ -1056,7 +1056,7 @@ function sheetToken(n) {
 const CATS = ['All','Dining','Auto','Beauty','Fitness','Health','Home Services','Retail','Real Estate','Events'];
 let homeCat = 'All', homeQ = '';
 function sheetHome() {
-  sheet('Home', '', `<div class="subtabs"><button id="ht-listings" onclick="setHomeTab('listings')">Listings</button><button id="ht-feed" onclick="setHomeTab('feed')">▶ Feed</button></div>
+  sheet('Home', '', `<div class="subtabs"><button id="ht-feed" onclick="setHomeTab('feed')">▶ Feed</button><button id="ht-listings" onclick="setHomeTab('listings')">Listings</button></div>
     <input class="hsearch" id="home-q" placeholder="Search businesses, rewards…" value="${esc(homeQ)}" oninput="homeQ=this.value;renderHome()" />
     <div class="chips" id="home-chips"></div><div id="home-list"></div>`);
   document.querySelector('.sheet').classList.add('tall');
@@ -1072,7 +1072,7 @@ function homeEntries() {
   });
   return Object.values(by);
 }
-let homeTab = 'listings';
+let homeTab = 'feed';
 function setHomeTab(t) { homeTab = t; renderHome(); }
 function renderHome() {
   const chips = $('home-chips'); if (!chips) return;
