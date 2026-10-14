@@ -330,7 +330,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v28';
+const BUILD = 'v29';
 const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_-BhG4wJldST1w9mtVfyRDg_afXUM6hE';
 const MAPBOX_TOKEN  = 'pk.eyJ1IjoiY2hhaW55MTIzIiwiYSI6ImNtbmV4b3BqYzA0aGIycHB0c3ZndWJvOHoifQ.AMfDgzCfpDEOWhA_M7lIQQ';
@@ -1084,9 +1084,8 @@ function sheetHome() {
     <div class="chips" id="home-chips"></div><div id="home-list"></div>`);
   document.querySelector('.sheet').classList.add('tall');
   renderHome();
-  if (!feedSeen) { feedSeen = true; openFeed(); }
+  openFeed();
 }
-let feedSeen = false;
 function homeEntries() {
   const by = {};
   nodes.forEach(n => {
