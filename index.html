@@ -193,6 +193,24 @@
     .qr code { color: #000; font-size: 11px; word-break: break-all; text-align: center; }
     .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
     .empty { text-align: center; color: var(--muted); font-size: 13px; padding: 30px 0; }
+    .sheet.tall { max-height: 92vh; }
+    .hsearch { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); font-size: 15px; outline: none; margin-bottom: 10px; }
+    .chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 8px; scrollbar-width: none; }
+    .chips::-webkit-scrollbar { display: none; }
+    .chip { flex-shrink: 0; padding: 8px 14px; border-radius: 20px; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); font-size: 13px; font-weight: 700; }
+    .chip.on { background: var(--accent); color: #0a0e17; border-color: var(--accent); }
+    .hcard { border: 1px solid var(--border); border-radius: 16px; overflow: hidden; margin-bottom: 12px; background: var(--surface2); cursor: pointer; }
+    .hcard-top { display: flex; align-items: center; gap: 10px; padding: 10px 12px; }
+    .hcard-logo { width: 36px; height: 36px; border-radius: 50%; background-size: cover; background-position: center; border: 2px solid #fff; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; color: #fff; }
+    .hcard-name { font-size: 15px; font-weight: 800; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .hcard-dist { font-size: 12px; color: var(--accent); font-weight: 700; flex-shrink: 0; }
+    .hcard-img { width: 100%; height: 150px; object-fit: cover; display: block; background: var(--surface); }
+    .hcard-body { padding: 10px 12px 12px; }
+    .hcard-cat { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+    .hcard-offer { font-size: 16px; font-weight: 800; margin: 2px 0 4px; }
+    .hcard-sub { font-size: 12px; color: var(--muted); }
+    .hbadge { display: inline-block; padding: 3px 9px; border-radius: 12px; font-size: 11px; font-weight: 800; }
+    .hfeat { background: rgba(234,179,8,.15); color: var(--gold); margin-left: 6px; }
   </style>
 </head>
 <body>
@@ -272,6 +290,7 @@
   <button class="fab right" onclick="recenter()" title="My location">📍</button>
 
   <div class="nav">
+    <button id="nav-home" onclick="openSheet('home')"><span class="ic">🏠</span>Home</button>
     <button class="active" id="nav-map" onclick="closeSheet()"><span class="ic">🗺️</span>Map</button>
     <button id="nav-rewards" onclick="openSheet('rewards')"><span class="ic">🎁</span>Rewards</button>
     <button id="nav-history" onclick="openSheet('history')"><span class="ic">🕐</span>History</button>
@@ -285,7 +304,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v23';
+const BUILD = 'v24';
 const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_-BhG4wJldST1w9mtVfyRDg_afXUM6hE';
 const MAPBOX_TOKEN  = 'pk.eyJ1IjoiY2hhaW55MTIzIiwiYSI6ImNtbmV4b3BqYzA0aGIycHB0c3ZndWJvOHoifQ.AMfDgzCfpDEOWhA_M7lIQQ';
@@ -496,7 +515,8 @@ async function loadNodes() {
     .eq('is_active', true).eq('is_demo', WORLD).or('remaining.gt.0,token_type.eq.AD');
   if (error) { console.warn(error); return; }
   nodes = (data || []).filter(n => !isAd(n) || (n.campaigns && n.campaigns.ad_video_url && !n.campaigns.ad_paused && !n.campaigns.ad_no_credit)).map(n => ({ ...n, lat: +n.latitude, lng: +n.longitude }));
-  [...new Set(nodes.map(n => n.campaigns?.business_id).filter(Boolean))].forEach(id => { if (!bizInfo[id]) loadBizInfo(id); });
+  const bids = [...new Set(nodes.map(n => n.campaigns?.business_id).filter(Boolean))].filter(id => !bizInfo[id]);
+  if (bids.length) sb.from('business_public').select('*').in('id', bids).then(({ data }) => { (data || []).forEach(b => bizInfo[b.id] = b); drawMarkers(); if ($('home-list')) renderHome(); });
   const nt = nodes.filter(n => !isAd(n)).length, na = nodes.length - nt;
   $('near-count').textContent = `${nt} token${nt === 1 ? '' : 's'}${na ? ` · ${na} ad${na === 1 ? '' : 's'}` : ''} on map`;
   drawMarkers(); renderNear(true);
@@ -930,7 +950,7 @@ function toast(kind, icon, main, sub) {
 }
 
 /* ---------------- Sheets ---------------- */
-function setNav(which) { ['map','rewards','history','profile'].forEach(k => $('nav-' + k).classList.toggle('active', k === which)); }
+function setNav(which) { ['home','map','rewards','history','profile'].forEach(k => $('nav-' + k).classList.toggle('active', k === which)); }
 function closeSheet() { endIntro(); $('sheet-root').innerHTML = ''; setNav('map'); }
 function sheet(title, subtitle, bodyHtml) {
   $('sheet-root').innerHTML = `<div class="sheet-bg" onclick="if(event.target===this)closeSheet()">
@@ -941,6 +961,7 @@ function sheet(title, subtitle, bodyHtml) {
 async function openSheet(which, arg) {
   if (which === 'token') return isAd(arg) ? sheetAd(arg) : sheetToken(arg);
   setNav(which);
+  if (which === 'home') return sheetHome();
   if (which === 'rewards') return sheetRewards();
   if (which === 'history') return sheetHistory();
   if (which === 'profile') return sheetProfile();
@@ -1021,6 +1042,49 @@ function sheetToken(n) {
     <button class="btn btn-primary" style="margin-top:10px" onclick="startNav('${n.id}')">🧭 Navigate here</button>
     <button class="btn btn-ghost" style="margin-top:10px" onclick="map.flyTo({center:[${n.lng},${n.lat}],zoom:16});closeSheet()">Show on map</button>
     <p class="fine">Keep ChainLane open and the screen on — the token is collected automatically as you pass it. <a href="https://www.google.com/maps/dir/?api=1&destination=${n.lat},${n.lng}&travelmode=driving" target="_blank">Open in Google Maps</a> instead if you prefer, but collection pauses while this page is in the background.</p>`);
+}
+
+/* ---------------- Home ---------------- */
+const CATS = ['All','Dining','Auto','Beauty','Fitness','Health','Home Services','Retail','Real Estate','Events'];
+let homeCat = 'All', homeQ = '';
+function sheetHome() {
+  sheet('Home', '', `<input class="hsearch" id="home-q" placeholder="Search businesses, rewards…" value="${esc(homeQ)}" oninput="homeQ=this.value;renderHome()" />
+    <div class="chips" id="home-chips"></div><div id="home-list"></div>`);
+  document.querySelector('.sheet').classList.add('tall');
+  renderHome();
+}
+function homeEntries() {
+  const by = {};
+  nodes.forEach(n => {
+    const bid = n.campaigns?.business_id; if (!bid) return;
+    const d = lastPos ? distM(lastPos.lat, lastPos.lng, n.lat, n.lng) : null;
+    if (!by[bid] || (d != null && d < by[bid].d)) by[bid] = { n, d, bid };
+  });
+  return Object.values(by);
+}
+function renderHome() {
+  const chips = $('home-chips'); if (!chips) return;
+  chips.innerHTML = CATS.map(c => `<button class="chip ${c === homeCat ? 'on' : ''}" onclick="homeCat='${c}';renderHome()">${c}</button>`).join('');
+  const q = homeQ.trim().toLowerCase();
+  let list = homeEntries().map(e => ({ ...e, bz: bizInfo[e.bid] || {} }));
+  list = list.filter(e => homeCat === 'All' || (e.bz.category || '') === homeCat);
+  if (q) list = list.filter(e => [e.n.campaigns?.business_name, e.bz.offer_title, e.bz.tagline, e.bz.description, e.bz.category, e.n.campaigns?.ad_title].join(' ').toLowerCase().includes(q));
+  list.sort((a, b) => (b.bz.featured ? 1 : 0) - (a.bz.featured ? 1 : 0) || (a.d ?? 1e12) - (b.d ?? 1e12));
+  const el = $('home-list');
+  if (!list.length) { el.innerHTML = '<div class="empty">Nothing here yet.</div>'; return; }
+  el.innerHTML = list.map(({ n, d, bz }) => {
+    const c = COLORS[n.token_type] || '#00D4FF', ad = isAd(n);
+    const logo = bz.logo_url ? `style="background-image:url('${esc(bz.logo_url)}');background-color:${c}"` : `style="background:${c}"`;
+    const offer = ad ? (n.campaigns?.ad_title || 'Video ad') : (bz.offer_title || rewardFor(bz.id).reward_name);
+    const img = ad ? null : bz.offer_image_url;
+    return `<div class="hcard" onclick="closeSheet();openSheet('token', nodes.find(x => x.id === '${n.id}'))">
+      <div class="hcard-top"><div class="hcard-logo" ${logo}>${bz.logo_url ? '' : (ad ? '▶' : esc(n.token_type))}</div>
+        <div class="hcard-name">${esc(n.campaigns?.business_name || 'Business')}${bz.featured ? '<span class="hbadge hfeat">★ Featured</span>' : ''}</div>
+        <div class="hcard-dist">${d != null ? fmtDist(d) : ''}</div></div>
+      ${img ? `<img class="hcard-img" src="${esc(img)}" alt="" loading="lazy">` : ''}
+      <div class="hcard-body"><div class="hcard-cat">${esc(bz.category || (ad ? 'Sponsored' : 'Local business'))}</div>
+        <div class="hcard-offer">${ad ? '▶ ' : '🎁 '}${esc(offer)}</div>
+        <div class="hcard-sub">${ad ? 'Sponsored video · free to watch' : `Earn +${n.point_value} pts per drive-by · ${rewardFor(bz.id).reward_cost_points} pts unlocks it`}${bz.tagline ? ' · ' + esc(bz.tagline) : ''}</div></div></div>`; }).join('');
 }
 
 async function sheetRewards() {
