@@ -117,6 +117,12 @@
     .puck.off svg path.body { fill: #F97316; }
     .turn { position: absolute; left: 12px; right: 12px; top: calc(118px + var(--safe-top)); z-index: 14; background: rgba(17,24,39,0.97); border: 1px solid var(--accent); border-radius: 14px; padding: 12px 14px; display: none; align-items: center; gap: 14px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
     .turn.on { display: flex; }
+    body.navigating .overlay > .card:first-child, body.navigating #sub-banner, body.navigating #loc-banner { display: none; }
+    body.navigating .turn { top: calc(12px + var(--safe-top)); }
+    body.navigating #n-routes, body.navigating #n-mode { display: none; }
+    body.navigating .navbar { bottom: calc(70px + var(--safe-bottom)); padding: 10px 14px; }
+    .recenter { position: absolute; right: 12px; bottom: calc(150px + var(--safe-bottom)); z-index: 16; background: var(--accent); color: #0a0e17; border: none; border-radius: 22px; padding: 10px 14px; font-weight: 800; font-size: 13px; display: none; box-shadow: 0 4px 14px rgba(0,0,0,.5); }
+    .recenter.on { display: block; }
     .turn .t-ic { font-size: 44px; width: 54px; text-align: center; }
     .turn .t-dist { font-size: 30px; font-weight: 800; line-height: 1; }
     .turn .t-ins { font-size: 18px; color: var(--text); font-weight: 600; margin-top: 4px; line-height: 1.25; }
@@ -303,6 +309,7 @@
   <div class="toast-wrap" id="toasts"></div>
 
   <div class="turn" id="turn"><div class="t-ic" id="t-ic">⬆️</div><div style="flex:1"><div class="t-dist" id="t-dist"></div><div class="t-ins" id="t-ins"></div><div class="t-then" id="t-then"></div></div></div>
+  <button class="recenter" id="recenter" onclick="recenterNav()">⌖ Re-center</button>
   <div class="navbar" id="navbar"><div style="flex:1"><div class="n-main" id="n-main"></div><div class="n-sub" id="n-sub"></div></div><button id="n-routes" onclick="showRoutePicker()" style="margin-left:0">Routes</button><button id="n-mode" onclick="toggleNavMode()" style="margin-left:0">🚗 Drive</button><button onclick="stopNav()">End</button></div>
 
   <button class="fab left" onclick="openSheet('rewards')" title="Rewards">🎁</button>
@@ -323,7 +330,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v27';
+const BUILD = 'v28';
 const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_-BhG4wJldST1w9mtVfyRDg_afXUM6hE';
 const MAPBOX_TOKEN  = 'pk.eyJ1IjoiY2hhaW55MTIzIiwiYSI6ImNtbmV4b3BqYzA0aGIycHB0c3ZndWJvOHoifQ.AMfDgzCfpDEOWhA_M7lIQQ';
@@ -526,6 +533,8 @@ function initMap() {
   map.addControl(geolocate, 'bottom-right');
   map.on('load', () => { try { geolocate.trigger(); } catch (e) {} });
   map.on('error', e => console.warn('map error', e?.error?.message));
+  const userMoved = e => { if (nav && e.originalEvent) { navFreeUntil = Date.now() + 20000; $('recenter').classList.add('on'); } };
+  map.on('dragstart', userMoved); map.on('zoomstart', userMoved); map.on('rotatestart', userMoved); map.on('pitchstart', userMoved);
 }
 
 async function loadNodes() {
@@ -613,7 +622,8 @@ function onPos(pos) {
   updateNavLive(lat, lng, pos.coords.heading);
   checkApproach(lat, lng, pos.coords.heading);
   renderNear();
-  if (nav) {
+  if (nav && Date.now() > navFreeUntil) {
+    $('recenter').classList.remove('on');
     const c = (nav.snapped && !nav.offCount) ? [nav.snapped.lng, nav.snapped.lat] : [lng, lat];
     const b = (mph > 3 && pos.coords.heading != null) ? pos.coords.heading : map.getBearing();
     // zoom in as a turn gets close so you can see exactly where to go
@@ -639,7 +649,8 @@ function onPos(pos) {
     }
   });
 }
-let prevPos = null;
+let prevPos = null, navFreeUntil = 0;
+function recenterNav() { navFreeUntil = 0; $('recenter').classList.remove('on'); if (lastPos) map.easeTo({ center: [lastPos.lng, lastPos.lat], zoom: 16.5, pitch: 55, bearing: lastPos.heading ?? map.getBearing(), duration: 700 }); }
 // closest point to P on the segment A->B, in a flat local approximation (fine for < 1 km)
 function closestPointOnSegment(aLat, aLng, bLat, bLng, pLat, pLng) {
   const kx = Math.cos(pLat * Math.PI / 180) * 111320, ky = 110540;
@@ -718,7 +729,8 @@ async function startNav(nodeId) {
   nav = { node: n, mode: (d0 < 150 && slow) ? 'walking' : 'driving', routes: [], sel: 0, route: null, steps: [], stepIdx: 0, offCount: 0, spoken: {}, lastReroute: 0 };
   setFocus(n.campaigns?.business_id, n.campaigns?.business_name);
   setNavModeLabel();
-  $('navbar').classList.add('on'); $('turn').classList.add('on');
+  $('navbar').classList.add('on'); $('turn').classList.add('on'); document.body.classList.add('navigating');
+  if (nearOpen) toggleNear();
   $('n-main').textContent = 'Getting route…'; $('n-sub').textContent = n.campaigns?.business_name || '';
   $('t-ic').textContent = '🧭'; $('t-dist').textContent = ''; $('t-ins').textContent = 'Finding the best routes…'; $('t-then').textContent = '';
   if (!map.getSource('route')) {
@@ -736,7 +748,7 @@ function setNavModeLabel() { $('n-mode').textContent = nav?.mode === 'walking' ?
 function toggleNavMode() { if (!nav) return; nav.mode = nav.mode === 'walking' ? 'driving' : 'walking'; setNavModeLabel(); fetchRoutes(true); }
 function stopNav() {
   nav = null; if (navTimer) { clearInterval(navTimer); navTimer = null; }
-  $('navbar').classList.remove('on'); $('turn').classList.remove('on');
+  $('navbar').classList.remove('on'); $('turn').classList.remove('on'); document.body.classList.remove('navigating'); $('recenter').classList.remove('on'); navFreeUntil = 0;
   if (map.getSource('route')) { map.getSource('route').setData({ type: 'FeatureCollection', features: [] }); map.getSource('route-alt').setData({ type: 'FeatureCollection', features: [] }); }
   showPuck(false);
   map.easeTo({ pitch: 0, bearing: 0 });
@@ -917,7 +929,7 @@ function renderNear(force) {
     const c = COLORS[n.token_type] || '#00D4FF';
     const logo = bz.logo_url ? `style="background-image:url('${esc(bz.logo_url)}');background-color:${c}"` : `style="background:${c}"`;
     const sub = isAd(n) ? `▶ ${esc(n.campaigns?.ad_title || 'Video ad')}` : `🎁 ${esc(bz.offer_title || rewardFor(bid).reward_name)} · +${n.point_value} pts`;
-    return `<div class="near-row" onclick="openSheet('token', nodes.find(x => x.id === '${n.id}'))">
+    return `<div class="near-row" onclick="toggleNear();openSheet('token', nodes.find(x => x.id === '${n.id}'))">
       <div class="near-logo" ${logo}>${bz.logo_url ? '' : (isAd(n) ? '▶' : esc(n.token_type))}</div>
       <div class="near-main"><div class="near-name">${esc(n.campaigns?.business_name || 'Token')}</div><div class="near-sub">${sub}</div></div>
       <div class="near-dist">${fmtDist(d)}</div></div>`; }).join('');
