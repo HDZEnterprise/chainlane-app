@@ -125,6 +125,8 @@
     body.navigating .navbar { bottom: calc(70px + var(--safe-bottom)); padding: 10px 14px; }
     .recenter { position: absolute; right: 12px; bottom: calc(150px + var(--safe-bottom)); z-index: 16; background: var(--accent); color: #0a0e17; border: none; border-radius: 22px; padding: 10px 14px; font-weight: 800; font-size: 13px; display: none; box-shadow: 0 4px 14px rgba(0,0,0,.5); }
     .recenter.on { display: block; }
+    .dest-pin { font-size: 34px; line-height: 1; filter: drop-shadow(0 2px 4px rgba(0,0,0,.6)); transform: translateY(-14px); }
+    .dest-label { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); background: rgba(17,24,39,.95); color: #fff; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 8px; white-space: nowrap; border: 1px solid var(--accent); }
     .eye { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; font-size: 18px; color: var(--muted); padding: 6px; }
     .drive-lock { position: absolute; left: 12px; right: 12px; bottom: calc(70px + var(--safe-bottom)); z-index: 18; background: rgba(17,24,39,0.97); border: 1px solid var(--warn, #f59e0b); border-radius: 14px; padding: 10px 14px; display: none; align-items: center; gap: 10px; font-size: 13px; }
     .drive-lock.on { display: flex; }
@@ -345,7 +347,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v36';
+const BUILD = 'v37';
 const TOS_VERSION = '2026-10-14';   // bump when the terms text changes; every driver must accept again
 const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_-BhG4wJldST1w9mtVfyRDg_afXUM6hE';
@@ -746,7 +748,13 @@ function openStripe() {
 let nav = null, navTimer = null, puck = null;
 const PUCK_SVG = `<svg viewBox="0 0 46 46"><circle cx="23" cy="23" r="21" fill="rgba(0,212,255,0.18)"/><path class="body" d="M23 5 L35 37 L23 30 L11 37 Z" fill="#00D4FF" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"/></svg>`;
 
-let destTimer = null;
+let destTimer = null, destMarker = null;
+function showDestMarker(dest) {
+  if (destMarker) { destMarker.remove(); destMarker = null; }
+  if (!dest) return;
+  const el = document.createElement('div'); el.style.position = 'relative'; el.innerHTML = `<div class="dest-pin">🏁</div><div class="dest-label">${esc(dest.name.split(',')[0])}</div>`;
+  destMarker = new mapboxgl.Marker({ element: el, anchor: 'bottom' }).setLngLat([dest.lng, dest.lat]).addTo(map);
+}
 function askDetour(nodeId) {
   const n = nodes.find(x => x.id === nodeId); if (!n) return;
   sheet('Where are you headed?', `We route you past ${n.campaigns?.business_name || 'the token'} first, then on to your destination.`, `
@@ -772,6 +780,7 @@ async function startNav(nodeId, dest) {
   const n = nodes.find(x => x.id === nodeId); if (!n) return;
   closeSheet();
   if (dest) { lastDest = dest; localStorage.setItem('cl_lastdest', JSON.stringify(dest)); }
+  showDestMarker(dest || null);
   const d0 = lastPos ? distM(lastPos.lat, lastPos.lng, n.lat, n.lng) : Infinity;
   const slow = !lastPos || !lastPos.speed || lastPos.speed < 2.2;
   nav = { node: n, dest: dest || null, mode: 'driving', routes: [], sel: 0, route: null, steps: [], stepIdx: 0, offCount: 0, spoken: {}, lastReroute: 0 };
@@ -797,7 +806,7 @@ async function startNav(nodeId, dest) {
 function setNavModeLabel() { $('n-mode').textContent = nav?.mode === 'walking' ? '🚶 Walk' : '🚗 Drive'; }
 function toggleNavMode() { if (!nav) return; nav.mode = nav.mode === 'walking' ? 'driving' : 'walking'; setNavModeLabel(); fetchRoutes(true); }
 function stopNav() {
-  nav = null; if (navTimer) { clearInterval(navTimer); navTimer = null; }
+  nav = null; showDestMarker(null); if (navTimer) { clearInterval(navTimer); navTimer = null; }
   $('navbar').classList.remove('on'); $('turn').classList.remove('on'); document.body.classList.remove('navigating'); $('recenter').classList.remove('on'); navFreeUntil = 0;
   if (map.getSource('route')) { map.getSource('route').setData({ type: 'FeatureCollection', features: [] }); map.getSource('route-alt').setData({ type: 'FeatureCollection', features: [] }); map.getSource('route-lead').setData({ type: 'FeatureCollection', features: [] }); }
   showPuck(false);
@@ -846,7 +855,7 @@ function applyRoute(fit) {
   $('n-main').textContent = `${fmtDist(route.distance)} · ${Math.max(1, Math.round(route.duration/60))} min` + (nav.dest ? (nav.node ? ' · via token' : ' · to destination') : '');
   $('n-sub').textContent = routeLabel(route, nav.sel) + (nav.routes.length > 1 ? ` · ${nav.routes.length} routes` : '');
   $('n-routes').style.display = nav.routes.length > 1 ? '' : 'none';
-  if (fit) { const b = new mapboxgl.LngLatBounds(); nav.line.forEach(c => b.extend(c)); map.fitBounds(b, { padding: { top: 200, bottom: 220, left: 40, right: 40 }, maxZoom: 16 }); }
+  if (fit) { const b = new mapboxgl.LngLatBounds(); nav.line.forEach(c => b.extend(c)); if (nav.dest) b.extend([nav.dest.lng, nav.dest.lat]); map.fitBounds(b, { padding: { top: 200, bottom: 220, left: 40, right: 40 }, maxZoom: 16 }); }
   updateTurnCard(lastPos?.lat, lastPos?.lng, true);
 }
 /* "My street": where you pull out onto the road from this spot (home, work). Saved on the phone. */
