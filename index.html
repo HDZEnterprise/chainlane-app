@@ -121,6 +121,7 @@
     body.navigating .overlay > .card:first-child, body.navigating #sub-banner, body.navigating #loc-banner { display: none; }
     body.navigating .turn { top: calc(12px + var(--safe-top)); }
     body.navigating #n-routes, body.navigating #n-mode { display: none; }
+    body.navigating #n-exit { display: none; } body.navigating.parked #n-exit { display: inline-block; }
     body.navigating .navbar { bottom: calc(70px + var(--safe-bottom)); padding: 10px 14px; }
     .recenter { position: absolute; right: 12px; bottom: calc(150px + var(--safe-bottom)); z-index: 16; background: var(--accent); color: #0a0e17; border: none; border-radius: 22px; padding: 10px 14px; font-weight: 800; font-size: 13px; display: none; box-shadow: 0 4px 14px rgba(0,0,0,.5); }
     .recenter.on { display: block; }
@@ -322,8 +323,9 @@
 
   <div class="turn" id="turn"><div class="t-ic" id="t-ic">⬆️</div><div style="flex:1"><div class="t-dist" id="t-dist"></div><div class="t-ins" id="t-ins"></div><div class="t-then" id="t-then"></div></div></div>
   <button class="recenter" id="recenter" onclick="recenterNav()">⌖ Re-center</button>
+  <div class="drive-lock" id="exit-hint" style="border-color:var(--accent)"><span style="font-size:22px">📍</span><div><b>Tap the street you pull out onto</b>We'll start routes from there whenever you're parked here.</div><button onclick="cancelSetExit()">Cancel</button></div>
   <div class="drive-lock" id="drive-lock"><span style="font-size:22px">🚗</span><div><b>Eyes on the road</b>Tokens collect automatically. Screens unlock when you stop.</div><button onclick="setPassenger()">I'm a passenger</button></div>
-  <div class="navbar" id="navbar"><div style="flex:1"><div class="n-main" id="n-main"></div><div class="n-sub" id="n-sub"></div></div><button id="n-routes" onclick="showRoutePicker()" style="margin-left:0">Routes</button><button id="n-mode" onclick="toggleNavMode()" style="margin-left:0">🚗 Drive</button><button onclick="stopNav()">End</button></div>
+  <div class="navbar" id="navbar"><div style="flex:1"><div class="n-main" id="n-main"></div><div class="n-sub" id="n-sub"></div></div><button id="n-routes" onclick="showRoutePicker()" style="margin-left:0">Routes</button><button id="n-mode" onclick="toggleNavMode()" style="margin-left:0">🚗 Drive</button><button id="n-exit" onclick="startSetExit()" style="margin-left:0" title="Tell the app where you pull out onto the road">📍 My street</button><button onclick="stopNav()">End</button></div>
 
   <button class="fab left" onclick="openSheet('rewards')" title="Rewards">🎁</button>
   <button class="fab right" onclick="recenter()" title="My location">📍</button>
@@ -343,7 +345,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v35';
+const BUILD = 'v36';
 const TOS_VERSION = '2026-10-14';   // bump when the terms text changes; every driver must accept again
 const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_-BhG4wJldST1w9mtVfyRDg_afXUM6hE';
@@ -551,7 +553,7 @@ function initMap() {
   map.addControl(geolocate, 'bottom-right');
   map.on('load', () => { try { geolocate.trigger(); } catch (e) {} });
   map.on('error', e => console.warn('map error', e?.error?.message));
-  map.on('click', () => { if (nearOpen) toggleNear(); });
+  map.on('click', e => { if (settingExit) { saveExit(e.lngLat.lat, e.lngLat.lng); return; } if (nearOpen) toggleNear(); });
   map.on('dragstart', () => { if (nearOpen) toggleNear(); });
   const userMoved = e => { if (nav && e.originalEvent) { navFreeUntil = Date.now() + 20000; $('recenter').classList.add('on'); } };
   map.on('dragstart', userMoved); map.on('zoomstart', userMoved); map.on('rotatestart', userMoved); map.on('pitchstart', userMoved);
@@ -639,6 +641,7 @@ function onPos(pos) {
   lastPos = { lat, lng, accuracy, speed, heading: pos.coords.heading, t: Date.now() };
   const mph = speed ? Math.round(speed * 2.237) : null;
   updateDriveLock(mph); breakReminder(mph);
+  document.body.classList.toggle('parked', !(mph > 3));
   if (nav && puck && !puck._map) puck.setLngLat([lng, lat]).addTo(map);
   updateNavLive(lat, lng, pos.coords.heading);
   checkApproach(lat, lng, pos.coords.heading);
@@ -771,7 +774,7 @@ async function startNav(nodeId, dest) {
   if (dest) { lastDest = dest; localStorage.setItem('cl_lastdest', JSON.stringify(dest)); }
   const d0 = lastPos ? distM(lastPos.lat, lastPos.lng, n.lat, n.lng) : Infinity;
   const slow = !lastPos || !lastPos.speed || lastPos.speed < 2.2;
-  nav = { node: n, dest: dest || null, mode: (d0 < 150 && slow) ? 'walking' : 'driving', routes: [], sel: 0, route: null, steps: [], stepIdx: 0, offCount: 0, spoken: {}, lastReroute: 0 };
+  nav = { node: n, dest: dest || null, mode: 'driving', routes: [], sel: 0, route: null, steps: [], stepIdx: 0, offCount: 0, spoken: {}, lastReroute: 0 };
   if (n) setFocus(n.campaigns?.business_id, n.campaigns?.business_name);
   setNavModeLabel();
   $('navbar').classList.add('on'); $('turn').classList.add('on'); document.body.classList.add('navigating');
@@ -820,13 +823,15 @@ async function fetchRoutes(fit) {
   const { lat, lng } = lastPos, n = nav.node;
   try {
     const profile = nav.mode === 'walking' ? 'walking' : 'driving-traffic';
-    const pts = [[lng, lat]]; if (n) pts.push([n.lng, n.lat]); if (nav.dest) pts.push([nav.dest.lng, nav.dest.lat]);
-    const coords = pts.map(c => c.join(',')).join(';'), radii = pts.map((_, i) => i === 0 ? 'unlimited' : 60).join(';');
+    const ex = exitFor(lat, lng); nav.exit = ex;
+    const pts = [ex ? [ex.lng, ex.lat] : [lng, lat]]; if (n) pts.push([n.lng, n.lat]); if (nav.dest) pts.push([nav.dest.lng, nav.dest.lat]);
+    const coords = pts.map(c => c.join(',')).join(';'), radii = pts.map((_, i) => i === 0 ? 120 : 60).join(';');
     const brg = (lastPos.heading != null && lastPos.speed > 2) ? `&bearings=${Math.round(lastPos.heading)},45;` : '';
     const url = `https://api.mapbox.com/directions/v5/mapbox/${profile}/${coords}?alternatives=${pts.length > 2 ? 'false' : 'true'}&geometries=geojson&overview=full&steps=true&banner_instructions=true&voice_instructions=false&radiuses=${radii}${brg}&access_token=${MAPBOX_TOKEN}`;
     const r = await (await fetch(url)).json();
     if (!r.routes?.length) { $('n-main').textContent = 'No route found'; $('t-ins').textContent = 'No route found — try Walk mode'; return; }
     nav.routes = r.routes; nav.sel = 0; nav.lastReroute = Date.now();
+    if (n && !nav.exit && !nav.hinted && (!lastPos.speed || lastPos.speed < 2)) { const straight = distM(lat, lng, n.lat, n.lng); if (straight < 600 && r.routes[0].distance > straight * 4) { nav.hinted = true; toast('err', '📍', 'Route looks long?', 'The map thinks your nearest road is a different street. Tap "My street" and mark where you pull out.'); } }
     applyRoute(fit);
     if (fit && nav.routes.length > 1 && !nav.pickedOnce) { showRoutePicker(); }
   } catch (e) { $('n-main').textContent = 'Route unavailable'; }
@@ -844,11 +849,28 @@ function applyRoute(fit) {
   if (fit) { const b = new mapboxgl.LngLatBounds(); nav.line.forEach(c => b.extend(c)); map.fitBounds(b, { padding: { top: 200, bottom: 220, left: 40, right: 40 }, maxZoom: 16 }); }
   updateTurnCard(lastPos?.lat, lastPos?.lng, true);
 }
+/* "My street": where you pull out onto the road from this spot (home, work). Saved on the phone. */
+let exits = JSON.parse(localStorage.getItem('cl_exits') || '[]'), settingExit = false;
+function exitFor(lat, lng) { if (lastPos && lastPos.speed > 3) return null; return exits.find(e => distM(lat, lng, e.homeLat ?? e.lat, e.homeLng ?? e.lng) < 150) || null; }
+function startSetExit() {
+  if (!lastPos) return toast('err', '📍', 'No GPS yet', 'Wait for your location, then try again.');
+  settingExit = true; toast('ok', '📍', 'Tap the street', 'Tap the spot on the road where you pull out from here.');
+  $('exit-hint').classList.add('on');
+  map.easeTo({ center: [lastPos.lng, lastPos.lat], zoom: 17, pitch: 0, bearing: 0 });
+}
+function cancelSetExit() { settingExit = false; $('exit-hint').classList.remove('on'); }
+function saveExit(lat, lng) {
+  exits = exits.filter(e => distM(lastPos.lat, lastPos.lng, e.homeLat ?? e.lat, e.homeLng ?? e.lng) >= 150);
+  exits.push({ lat, lng, homeLat: lastPos.lat, homeLng: lastPos.lng });
+  localStorage.setItem('cl_exits', JSON.stringify(exits));
+  cancelSetExit(); toast('ok', '✅', 'Street saved', 'Routes from here now start at that spot.');
+  if (nav) fetchRoutes(true);
+}
 function updateLead() {
   // dotted line from where you actually are to where the road route begins (driveway / parking lot gap)
   if (!map.getSource('route-lead')) return;
   if (!nav || !nav.line || !lastPos) { map.getSource('route-lead').setData({ type: 'FeatureCollection', features: [] }); return; }
-  const start = nav.line[0], d = distM(lastPos.lat, lastPos.lng, start[1], start[0]);
+  const start = nav.exit ? [nav.exit.lng, nav.exit.lat] : nav.line[0], d = distM(lastPos.lat, lastPos.lng, start[1], start[0]);
   map.getSource('route-lead').setData(d > 15 && d < 400 ? { type: 'Feature', geometry: { type: 'LineString', coordinates: [[lastPos.lng, lastPos.lat], start] } } : { type: 'FeatureCollection', features: [] });
 }
 function routeLabel(route, i) {
