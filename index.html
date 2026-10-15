@@ -124,6 +124,7 @@
     body.navigating .navbar { bottom: calc(70px + var(--safe-bottom)); padding: 10px 14px; }
     .recenter { position: absolute; right: 12px; bottom: calc(150px + var(--safe-bottom)); z-index: 16; background: var(--accent); color: #0a0e17; border: none; border-radius: 22px; padding: 10px 14px; font-weight: 800; font-size: 13px; display: none; box-shadow: 0 4px 14px rgba(0,0,0,.5); }
     .recenter.on { display: block; }
+    .eye { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; font-size: 18px; color: var(--muted); padding: 6px; }
     .drive-lock { position: absolute; left: 12px; right: 12px; bottom: calc(70px + var(--safe-bottom)); z-index: 18; background: rgba(17,24,39,0.97); border: 1px solid var(--warn, #f59e0b); border-radius: 14px; padding: 10px 14px; display: none; align-items: center; gap: 10px; font-size: 13px; }
     .drive-lock.on { display: flex; }
     .drive-lock b { display: block; font-size: 14px; }
@@ -263,7 +264,7 @@
 
     <form id="form-in" onsubmit="return signIn(event)">
       <div class="field"><input id="in-email" type="email" placeholder="Email" autocomplete="email" required /></div>
-      <div class="field"><input id="in-pass" type="password" placeholder="Password" autocomplete="current-password" required /></div>
+      <div class="field" style="position:relative"><input id="in-pass" type="password" placeholder="Password" autocomplete="current-password" required style="padding-right:44px" /><button type="button" class="eye" onclick="togglePw('in-pass',this)">👁</button></div>
       <button class="btn btn-primary" id="in-btn" type="submit">Sign In</button>
       <p class="fine"><a href="#" onclick="forgotPassword();return false;">Forgot password?</a></p>
     </form>
@@ -271,7 +272,7 @@
     <form id="form-up" class="hidden" onsubmit="return signUp(event)">
       <div class="field"><input id="up-name" type="text" placeholder="Full name" autocomplete="name" required /></div>
       <div class="field"><input id="up-email" type="email" placeholder="Email" autocomplete="email" required /></div>
-      <div class="field"><input id="up-pass" type="password" placeholder="Password (6+ characters)" autocomplete="new-password" minlength="6" required /></div>
+      <div class="field" style="position:relative"><input id="up-pass" type="password" placeholder="Password (6+ characters)" autocomplete="new-password" minlength="6" required style="padding-right:44px" /><button type="button" class="eye" onclick="togglePw('up-pass',this)">👁</button></div>
       <div class="field"><input id="up-zip" type="text" inputmode="numeric" placeholder="Zip code" pattern="[0-9]{5}" maxlength="5" required /></div>
       <div class="field"><input id="up-promo" type="text" placeholder="Promo code (optional)" autocapitalize="characters" style="text-transform:uppercase" /></div>
       <button class="btn btn-primary" id="up-btn" type="submit">Create Account</button>
@@ -342,7 +343,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v32';
+const BUILD = 'v33';
 const TOS_VERSION = '2026-10-14';   // bump when the terms text changes; every driver must accept again
 const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_-BhG4wJldST1w9mtVfyRDg_afXUM6hE';
@@ -485,7 +486,8 @@ async function pulse() {
 }
 async function loadSettings() {
   const { data: rows } = await sb.from('app_settings').select('key,value').in('key', ['collect_radius_m', 'lock_mph']);
-  (rows || []).forEach(r => { const v = parseFloat(Array.isArray(r.value) ? r.value[0] : r.value); if (r.key === 'collect_radius_m' && v > 0) COLLECT_RADIUS_M = v; if (r.key === 'lock_mph' && v > 0) LOCK_MPH = v; });
+  (rows || []).forEach(r => { const v = parseFloat(Array.isArray(r.value) ? r.value[0] : r.value); if (r.key === 'collect_radius_m' && v > 0) COLLECT_RADIUS_M = v; if (r.key === 'lock_mph' && v > 0) LOCK_MPH = v; if (r.key === 'driver_waitlist') WAITLIST = String(Array.isArray(r.value) ? r.value[0] : r.value) === 'true'; });
+  if (WAITLIST) { $('sub-banner').innerHTML = '<p><strong>You\'re on the ChainLane waitlist.</strong> We turn on collecting for drivers in batches as businesses join near you — you\'ll get an email. You can browse tokens, the Home page and the feed now.</p>'; }
 }
 async function loadCooldowns() {
   // server is the truth; a cooldown the admin wiped disappears here on the next refresh
@@ -505,6 +507,7 @@ async function loadBalances() {
     sb.from('rewards').select('business_id,reward_name,reward_cost_points').eq('is_active', true)
   ]);
   balances = b || []; rewardsList = r || [];
+  redeemReminders();
   renderPoints();
 }
 function rewardFor(bid) { return rewardsList.find(r => r.business_id === bid) || rewardsList.find(r => !r.business_id) || { reward_name: 'Reward', reward_cost_points: 100 }; }
@@ -633,7 +636,7 @@ function onPos(pos) {
   const { latitude: lat, longitude: lng, accuracy, speed } = pos.coords;
   lastPos = { lat, lng, accuracy, speed, heading: pos.coords.heading, t: Date.now() };
   const mph = speed ? Math.round(speed * 2.237) : null;
-  updateDriveLock(mph);
+  updateDriveLock(mph); breakReminder(mph);
   if (nav && puck && !puck._map) puck.setLngLat([lng, lat]).addTo(map);
   updateNavLive(lat, lng, pos.coords.heading);
   checkApproach(lat, lng, pos.coords.heading);
@@ -728,6 +731,7 @@ function distM(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 function vibrate(p) { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} }
+function togglePw(id, btn) { const i = $(id); i.type = i.type === 'password' ? 'text' : 'password'; btn.style.color = i.type === 'text' ? 'var(--accent)' : 'var(--muted)'; }
 function openStripe() {
   const url = STRIPE_LINK + (session?.user?.email ? `?prefilled_email=${encodeURIComponent(session.user.email)}&client_reference_id=${session.user.id}` : '');
   window.open(url, '_blank');
@@ -737,17 +741,40 @@ function openStripe() {
 let nav = null, navTimer = null, puck = null;
 const PUCK_SVG = `<svg viewBox="0 0 46 46"><circle cx="23" cy="23" r="21" fill="rgba(0,212,255,0.18)"/><path class="body" d="M23 5 L35 37 L23 30 L11 37 Z" fill="#00D4FF" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"/></svg>`;
 
-async function startNav(nodeId) {
+let destTimer = null;
+function askDetour(nodeId) {
+  const n = nodes.find(x => x.id === nodeId); if (!n) return;
+  sheet('Where are you headed?', `We route you past ${n.campaigns?.business_name || 'the token'} first, then on to your destination.`, `
+    <input class="hsearch" id="dest-q" placeholder="Type your destination address…" autocomplete="off" oninput="destSuggest('${nodeId}')" />
+    <div id="dest-list"></div>
+    ${lastDest ? `<button class="btn btn-ghost" style="margin-top:8px" onclick="startNav('${nodeId}', lastDest)">↪ ${esc(lastDest.name)} (last destination)</button>` : ''}`);
+  setTimeout(() => $('dest-q')?.focus(), 100);
+}
+let lastDest = JSON.parse(localStorage.getItem('cl_lastdest') || 'null');
+function destSuggest(nodeId) {
+  const q = $('dest-q').value.trim(); clearTimeout(destTimer);
+  if (q.length < 4) { $('dest-list').innerHTML = ''; return; }
+  destTimer = setTimeout(async () => {
+    try {
+      const prox = lastPos ? `${lastPos.lng},${lastPos.lat}` : '-95.3698,29.7604';
+      const r = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json?access_token=${MAPBOX_TOKEN}&autocomplete=true&country=us&limit=5&types=address,poi,place&proximity=${prox}`);
+      const j = await r.json();
+      $('dest-list').innerHTML = (j.features || []).map(f => `<div class="near-row" onclick='startNav("${nodeId}", ${JSON.stringify({ lat: f.center[1], lng: f.center[0], name: f.place_name }).replace(/'/g, "&#39;")})'><div class="near-main"><div class="near-name">${esc(f.text)}</div><div class="near-sub">${esc(f.place_name)}</div></div></div>`).join('') || '<div class="empty">No matches</div>';
+    } catch (e) { $('dest-list').innerHTML = '<div class="empty">Search unavailable</div>'; }
+  }, 250);
+}
+async function startNav(nodeId, dest) {
   const n = nodes.find(x => x.id === nodeId); if (!n) return;
   closeSheet();
+  if (dest) { lastDest = dest; localStorage.setItem('cl_lastdest', JSON.stringify(dest)); }
   const d0 = lastPos ? distM(lastPos.lat, lastPos.lng, n.lat, n.lng) : Infinity;
   const slow = !lastPos || !lastPos.speed || lastPos.speed < 2.2;
-  nav = { node: n, mode: (d0 < 150 && slow) ? 'walking' : 'driving', routes: [], sel: 0, route: null, steps: [], stepIdx: 0, offCount: 0, spoken: {}, lastReroute: 0 };
-  setFocus(n.campaigns?.business_id, n.campaigns?.business_name);
+  nav = { node: n, dest: dest || null, mode: (d0 < 150 && slow) ? 'walking' : 'driving', routes: [], sel: 0, route: null, steps: [], stepIdx: 0, offCount: 0, spoken: {}, lastReroute: 0 };
+  if (n) setFocus(n.campaigns?.business_id, n.campaigns?.business_name);
   setNavModeLabel();
   $('navbar').classList.add('on'); $('turn').classList.add('on'); document.body.classList.add('navigating');
   if (nearOpen) toggleNear();
-  $('n-main').textContent = 'Getting route…'; $('n-sub').textContent = n.campaigns?.business_name || '';
+  $('n-main').textContent = 'Getting route…'; $('n-sub').textContent = (nav.node ? (n.campaigns?.business_name || '') : '') + (dest ? ' → ' + dest.name.split(',')[0] : '');
   $('t-ic').textContent = '🧭'; $('t-dist').textContent = ''; $('t-ins').textContent = 'Finding the best routes…'; $('t-then').textContent = '';
   if (!map.getSource('route')) {
     map.addSource('route', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -789,8 +816,10 @@ async function fetchRoutes(fit) {
   const { lat, lng } = lastPos, n = nav.node;
   try {
     const profile = nav.mode === 'walking' ? 'walking' : 'driving-traffic';
+    const pts = [[lng, lat]]; if (n) pts.push([n.lng, n.lat]); if (nav.dest) pts.push([nav.dest.lng, nav.dest.lat]);
+    const coords = pts.map(c => c.join(',')).join(';'), radii = pts.map(() => 60).join(';');
     const brg = (lastPos.heading != null && lastPos.speed > 2) ? `&bearings=${Math.round(lastPos.heading)},45;` : '';
-    const url = `https://api.mapbox.com/directions/v5/mapbox/${profile}/${lng},${lat};${n.lng},${n.lat}?alternatives=true&geometries=geojson&overview=full&steps=true&banner_instructions=true&voice_instructions=false&radiuses=60;60${brg}&access_token=${MAPBOX_TOKEN}`;
+    const url = `https://api.mapbox.com/directions/v5/mapbox/${profile}/${coords}?alternatives=${pts.length > 2 ? 'false' : 'true'}&geometries=geojson&overview=full&steps=true&banner_instructions=true&voice_instructions=false&radiuses=${radii}${brg}&access_token=${MAPBOX_TOKEN}`;
     const r = await (await fetch(url)).json();
     if (!r.routes?.length) { $('n-main').textContent = 'No route found'; $('t-ins').textContent = 'No route found — try Walk mode'; return; }
     nav.routes = r.routes; nav.sel = 0; nav.lastReroute = Date.now();
@@ -800,11 +829,11 @@ async function fetchRoutes(fit) {
 }
 function applyRoute(fit) {
   const route = nav.routes[nav.sel]; nav.route = route;
-  nav.steps = route.legs?.[0]?.steps || []; nav.stepIdx = 0; nav.offCount = 0; nav.spoken = {};
+  nav.steps = (route.legs || []).flatMap(l => l.steps || []); nav.stepIdx = 0; nav.offCount = 0; nav.spoken = {};
   nav.line = route.geometry.coordinates;
   map.getSource('route').setData({ type: 'Feature', geometry: route.geometry });
   map.getSource('route-alt').setData({ type: 'FeatureCollection', features: nav.routes.filter((_, i) => i !== nav.sel).map(x => ({ type: 'Feature', geometry: x.geometry })) });
-  $('n-main').textContent = `${fmtDist(route.distance)} · ${Math.max(1, Math.round(route.duration/60))} min`;
+  $('n-main').textContent = `${fmtDist(route.distance)} · ${Math.max(1, Math.round(route.duration/60))} min` + (nav.dest ? (nav.node ? ' · via token' : ' · to destination') : '');
   $('n-sub').textContent = routeLabel(route, nav.sel) + (nav.routes.length > 1 ? ` · ${nav.routes.length} routes` : '');
   $('n-routes').style.display = nav.routes.length > 1 ? '' : 'none';
   if (fit) { const b = new mapboxgl.LngLatBounds(); nav.line.forEach(c => b.extend(c)); map.fitBounds(b, { padding: { top: 200, bottom: 220, left: 40, right: 40 }, maxZoom: 16 }); }
@@ -863,9 +892,16 @@ function navTick() {
     map.getSource('route').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: rest } });
   }
   // 5. arrived / collected
-  const n = nav.node, d = distM(lat, lng, n.lat, n.lng);
-  if (d <= 300 && !nav.spoken.near) { nav.spoken.near = true; }
-  if (onCooldown(n.id) && localCooldown[n.id] > Date.now() + 60*60*1000) { toast('info', '🧭', 'Arrived', 'Token collected — navigation ended'); stopNav(); }
+  const n = nav.node;
+  if (n) {
+    const d = distM(lat, lng, n.lat, n.lng);
+    if (d <= 300 && !nav.spoken.near) { nav.spoken.near = true; }
+    const got = (onCooldown(n.id) && localCooldown[n.id] > Date.now() + 60*60*1000) || (isAd(n) && d < 40);
+    if (got) {
+      if (nav.dest) { nav.node = null; toast('ok', '↪', 'Token done', `Continuing to ${nav.dest.name.split(',')[0]}`); say(`Continuing to your destination.`); $('n-sub').textContent = '→ ' + nav.dest.name.split(',')[0]; fetchRoutes(false); }
+      else { toast('info', '🧭', 'Arrived', 'Token collected — navigation ended'); stopNav(); }
+    }
+  } else if (nav.dest && distM(lat, lng, nav.dest.lat, nav.dest.lng) < 40) { toast('ok', '🏁', 'You have arrived', nav.dest.name.split(',')[0]); say('You have arrived.'); stopNav(); }
 }
 const TURN_ICONS = { 'turn-left': '⬅️', 'turn-right': '➡️', 'turn-slight left': '↖️', 'turn-slight right': '↗️', 'turn-sharp left': '⬅️', 'turn-sharp right': '➡️', 'turn-uturn': '↩️', 'turn-straight': '⬆️',
   'depart': '🚗', 'arrive': '🏁', 'merge': '↗️', 'on ramp': '↗️', 'off ramp': '↘️', 'fork-left': '↖️', 'fork-right': '↗️', 'end of road-left': '⬅️', 'end of road-right': '➡️', 'continue': '⬆️', 'roundabout': '🔄', 'rotary': '🔄', 'new name': '⬆️' };
@@ -928,8 +964,33 @@ function sideOf(lat, lng, heading, tLat, tLng) {
   const rel = ((bearing(lat, lng, tLat, tLng) - heading) + 360) % 360;
   return rel > 20 && rel < 160 ? 'on your right' : rel > 200 && rel < 340 ? 'on your left' : 'straight ahead';
 }
+/* ---------------- Reminders ---------------- */
+const remindedAt = JSON.parse(localStorage.getItem('cl_remind') || '{}');
+function redeemReminders() {
+  const now = Date.now(); let said = false;
+  balances.forEach(b => {
+    const rw = rewardFor(b.business_id); if (!rw || b.balance < rw.reward_cost_points) return;
+    if (now - (remindedAt[b.business_id] || 0) < 24 * 3600e3) return;
+    remindedAt[b.business_id] = now;
+    toast('ok', '🎁', `${b.business_name}: reward ready`, `You have ${b.balance} pts — enough for ${rw.reward_name}. Open Rewards to redeem.`);
+    if (!said) { said = true; say(`You have enough points for ${rw.reward_name} at ${b.business_name}. Open Rewards when you stop.`); }
+  });
+  localStorage.setItem('cl_remind', JSON.stringify(remindedAt));
+}
+let drivingSince = 0, lastBreakNag = 0;
+function breakReminder(mph) {
+  const now = Date.now();
+  if (mph != null && mph >= 5) { if (!drivingSince) drivingSince = now; }
+  else if (drivingSince && now - stoppedSince > 10 * 60e3 && stoppedSince) { drivingSince = 0; }   // 10 min stopped = break taken
+  if (drivingSince && now - drivingSince > 2 * 3600e3 && now - lastBreakNag > 30 * 60e3) {
+    lastBreakNag = now;
+    toast('err', '☕', 'Two hours on the road', 'Take a break. Tokens will still be there.');
+    say('You have been driving for two hours. Take a break when you can.');
+  }
+}
+
 /* ---------------- Driving lock (safety) ---------------- */
-let LOCK_MPH = 8, moving = false, movingSince = 0, stoppedSince = 0, passengerUntil = +(localStorage.getItem('cl_passenger') || 0);
+let WAITLIST = false, LOCK_MPH = 8, moving = false, movingSince = 0, stoppedSince = 0, passengerUntil = +(localStorage.getItem('cl_passenger') || 0);
 const isPassenger = () => passengerUntil > Date.now();
 const locked = () => moving && !isPassenger();
 function updateDriveLock(mph) {
@@ -1119,7 +1180,7 @@ function sheetToken(n) {
   const d = lastPos ? Math.round(distM(lastPos.lat, lastPos.lng, n.lat, n.lng)) : null;
   const cool = realCooldown(n.id);
   const status = cool ? `⏳ Collected — available again in ${Math.ceil((localCooldown[n.id]-Date.now())/3600000)} h`
-               : !isSubscribed() ? '🔒 Subscribe to collect this token'
+               : !isSubscribed() ? (WAITLIST ? '⏳ Collecting turns on when you come off the waitlist' : '🔒 Subscribe to collect this token')
                : d == null ? '📍 Waiting for your location…'
                : d <= COLLECT_RADIUS_M ? '✅ You are here — collecting…'
                : `🚗 Drive within ${fmtDist(COLLECT_RADIUS_M)} to collect automatically — you are ${fmtDist(d)} away`;
@@ -1146,8 +1207,9 @@ function sheetToken(n) {
       <div class="stat"><b style="color:${c}">${esc(n.token_type)}</b><span>${esc(TYPE_NAMES[n.token_type] || '')}</span></div>
     </div>
     <div class="reward-box"><p style="margin:0;color:var(--text)">${status}</p></div>
-    ${!isSubscribed() ? `<button class="btn btn-primary" onclick="openStripe()">Subscribe — $10/mo</button>` : ''}
+    ${!isSubscribed() && !WAITLIST ? `<button class="btn btn-primary" onclick="openStripe()">Subscribe — $10/mo</button>` : ''}
     <button class="btn btn-primary" style="margin-top:10px" onclick="startNav('${n.id}')">🧭 Navigate here</button>
+    <button class="btn btn-ghost" style="margin-top:10px" onclick="askDetour('${n.id}')">↪ Grab it on my way to…</button>
     <button class="btn btn-ghost" style="margin-top:10px" onclick="map.flyTo({center:[${n.lng},${n.lat}],zoom:16});closeSheet()">Show on map</button>
     <p class="fine">Keep ChainLane open and the screen on — the token is collected automatically as you pass it. <a href="https://www.google.com/maps/dir/?api=1&destination=${n.lat},${n.lng}&travelmode=driving" target="_blank">Open in Google Maps</a> instead if you prefer, but collection pauses while this page is in the background.</p>`);
 }
