@@ -347,7 +347,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v37';
+const BUILD = 'v38';
 const TOS_VERSION = '2026-10-14';   // bump when the terms text changes; every driver must accept again
 const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_-BhG4wJldST1w9mtVfyRDg_afXUM6hE';
@@ -836,8 +836,22 @@ async function fetchRoutes(fit) {
     const pts = [ex ? [ex.lng, ex.lat] : [lng, lat]]; if (n) pts.push([n.lng, n.lat]); if (nav.dest) pts.push([nav.dest.lng, nav.dest.lat]);
     const coords = pts.map(c => c.join(',')).join(';'), radii = pts.map((_, i) => i === 0 ? 120 : 60).join(';');
     const brg = (lastPos.heading != null && lastPos.speed > 2) ? `&bearings=${Math.round(lastPos.heading)},45;` : '';
-    const url = `https://api.mapbox.com/directions/v5/mapbox/${profile}/${coords}?alternatives=${pts.length > 2 ? 'false' : 'true'}&geometries=geojson&overview=full&steps=true&banner_instructions=true&voice_instructions=false&radiuses=${radii}${brg}&access_token=${MAPBOX_TOKEN}`;
-    const r = await (await fetch(url)).json();
+    const base = `https://api.mapbox.com/directions/v5/mapbox/${profile}/`, tail = `&geometries=geojson&overview=full&steps=true&banner_instructions=true&voice_instructions=false&continue_straight=false${brg}&access_token=${MAPBOX_TOKEN}`;
+    const url = `${base}${coords}?alternatives=${pts.length > 2 ? 'false' : 'true'}&radiuses=${radii}${tail}`;
+    let r;
+    if (n && nav.dest) {
+      // detour: also get the direct route; if it already passes within collecting range of the token, use it
+      const directUrl = `${base}${pts[0].join(',')};${nav.dest.lng},${nav.dest.lat}?alternatives=false&radiuses=${radii.split(';')[0]};60${tail}`;
+      const [via, direct] = await Promise.all([fetch(url).then(x => x.json()), fetch(directUrl).then(x => x.json())]);
+      r = via;
+      const dr = direct.routes?.[0], vr = via.routes?.[0];
+      if (dr && vr) {
+        const passes = dr.geometry.coordinates.some((c, i, a) => i > 0 && closestPointOnSegment(a[i-1][1], a[i-1][0], c[1], c[0], n.lat, n.lng).d <= COLLECT_RADIUS_M);
+        const extra = Math.round((vr.duration - dr.duration) / 60);
+        if (passes) { r = direct; nav.onTheWay = true; nav.extraMin = 0; }
+        else { nav.onTheWay = false; nav.extraMin = extra; }
+      }
+    } else r = await (await fetch(url)).json();
     if (!r.routes?.length) { $('n-main').textContent = 'No route found'; $('t-ins').textContent = 'No route found — try Walk mode'; return; }
     nav.routes = r.routes; nav.sel = 0; nav.lastReroute = Date.now();
     if (n && !nav.exit && !nav.hinted && (!lastPos.speed || lastPos.speed < 2)) { const straight = distM(lat, lng, n.lat, n.lng); if (straight < 600 && r.routes[0].distance > straight * 4) { nav.hinted = true; toast('err', '📍', 'Route looks long?', 'The map thinks your nearest road is a different street. Tap "My street" and mark where you pull out.'); } }
@@ -852,7 +866,7 @@ function applyRoute(fit) {
   map.getSource('route').setData({ type: 'Feature', geometry: route.geometry });
   updateLead();
   map.getSource('route-alt').setData({ type: 'FeatureCollection', features: nav.routes.filter((_, i) => i !== nav.sel).map(x => ({ type: 'Feature', geometry: x.geometry })) });
-  $('n-main').textContent = `${fmtDist(route.distance)} · ${Math.max(1, Math.round(route.duration/60))} min` + (nav.dest ? (nav.node ? ' · via token' : ' · to destination') : '');
+  $('n-main').textContent = `${fmtDist(route.distance)} · ${Math.max(1, Math.round(route.duration/60))} min` + (nav.dest ? (nav.node ? (nav.onTheWay ? ' · token on the way' : ` · +${nav.extraMin || 0} min for token`) : ' · to destination') : '');
   $('n-sub').textContent = routeLabel(route, nav.sel) + (nav.routes.length > 1 ? ` · ${nav.routes.length} routes` : '');
   $('n-routes').style.display = nav.routes.length > 1 ? '' : 'none';
   if (fit) { const b = new mapboxgl.LngLatBounds(); nav.line.forEach(c => b.extend(c)); if (nav.dest) b.extend([nav.dest.lng, nav.dest.lat]); map.fitBounds(b, { padding: { top: 200, bottom: 220, left: 40, right: 40 }, maxZoom: 16 }); }
