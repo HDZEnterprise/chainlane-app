@@ -123,6 +123,16 @@
     body.navigating .navbar { bottom: calc(70px + var(--safe-bottom)); padding: 10px 14px; }
     .recenter { position: absolute; right: 12px; bottom: calc(150px + var(--safe-bottom)); z-index: 16; background: var(--accent); color: #0a0e17; border: none; border-radius: 22px; padding: 10px 14px; font-weight: 800; font-size: 13px; display: none; box-shadow: 0 4px 14px rgba(0,0,0,.5); }
     .recenter.on { display: block; }
+    .drive-lock { position: absolute; left: 12px; right: 12px; bottom: calc(70px + var(--safe-bottom)); z-index: 18; background: rgba(17,24,39,0.97); border: 1px solid var(--warn, #f59e0b); border-radius: 14px; padding: 10px 14px; display: none; align-items: center; gap: 10px; font-size: 13px; }
+    .drive-lock.on { display: flex; }
+    .drive-lock b { display: block; font-size: 14px; }
+    .drive-lock button { margin-left: auto; background: var(--surface2); color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+    body.navigating .drive-lock { bottom: calc(150px + var(--safe-bottom)); }
+    .tos-bg { position: fixed; inset: 0; z-index: 70; background: var(--bg); overflow-y: auto; padding: calc(20px + var(--safe-top)) 18px calc(20px + var(--safe-bottom)); }
+    .tos-bg h1 { font-size: 22px; font-weight: 800; margin-bottom: 10px; }
+    .tos-box { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px; font-size: 14px; line-height: 1.55; color: var(--text); max-height: 50vh; overflow-y: auto; margin-bottom: 14px; }
+    .tos-box h3 { font-size: 14px; margin: 12px 0 4px; } .tos-box p { margin: 0 0 8px; }
+    .tos-row { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; margin-bottom: 14px; } .tos-row input { width: 22px; height: 22px; flex-shrink: 0; }
     .turn .t-ic { font-size: 44px; width: 54px; text-align: center; }
     .turn .t-dist { font-size: 30px; font-weight: 800; line-height: 1; }
     .turn .t-ins { font-size: 18px; color: var(--text); font-weight: 600; margin-top: 4px; line-height: 1.25; }
@@ -310,6 +320,7 @@
 
   <div class="turn" id="turn"><div class="t-ic" id="t-ic">⬆️</div><div style="flex:1"><div class="t-dist" id="t-dist"></div><div class="t-ins" id="t-ins"></div><div class="t-then" id="t-then"></div></div></div>
   <button class="recenter" id="recenter" onclick="recenterNav()">⌖ Re-center</button>
+  <div class="drive-lock" id="drive-lock"><span style="font-size:22px">🚗</span><div><b>Eyes on the road</b>Tokens collect automatically. Screens unlock when you stop.</div><button onclick="setPassenger()">I'm a passenger</button></div>
   <div class="navbar" id="navbar"><div style="flex:1"><div class="n-main" id="n-main"></div><div class="n-sub" id="n-sub"></div></div><button id="n-routes" onclick="showRoutePicker()" style="margin-left:0">Routes</button><button id="n-mode" onclick="toggleNavMode()" style="margin-left:0">🚗 Drive</button><button onclick="stopNav()">End</button></div>
 
   <button class="fab left" onclick="openSheet('rewards')" title="Rewards">🎁</button>
@@ -330,7 +341,8 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v29';
+const BUILD = 'v31';
+const TOS_VERSION = '2026-10-14';   // bump when the terms text changes; every driver must accept again
 const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_-BhG4wJldST1w9mtVfyRDg_afXUM6hE';
 const MAPBOX_TOKEN  = 'pk.eyJ1IjoiY2hhaW55MTIzIiwiYSI6ImNtbmV4b3BqYzA0aGIycHB0c3ZndWJvOHoifQ.AMfDgzCfpDEOWhA_M7lIQQ';
@@ -471,9 +483,8 @@ async function pulse() {
   } catch (e) {}
 }
 async function loadSettings() {
-  const { data } = await sb.from('app_settings').select('value').eq('key', 'collect_radius_m').maybeSingle();
-  const v = data ? parseFloat(data.value) : NaN;
-  if (v > 0) COLLECT_RADIUS_M = v;
+  const { data: rows } = await sb.from('app_settings').select('key,value').in('key', ['collect_radius_m', 'lock_mph']);
+  (rows || []).forEach(r => { const v = parseFloat(Array.isArray(r.value) ? r.value[0] : r.value); if (r.key === 'collect_radius_m' && v > 0) COLLECT_RADIUS_M = v; if (r.key === 'lock_mph' && v > 0) LOCK_MPH = v; });
 }
 async function loadCooldowns() {
   // server is the truth; a cooldown the admin wiped disappears here on the next refresh
@@ -500,10 +511,11 @@ function setFocus(bid, name) { if (!bid) return; focusBiz = { id: bid, name }; r
 async function loadProfile() {
   const uid = session?.user?.id; if (!uid) return;
   await loadBalances();
-  const { data } = await sb.from('users').select('full_name,email,zip_code,total_points,remaining_points,subscription_status,subscription_end,is_banned,created_at,can_demo').eq('id', uid).maybeSingle();
+  const { data } = await sb.from('users').select('full_name,email,zip_code,total_points,remaining_points,subscription_status,subscription_end,is_banned,created_at,can_demo,tos_version').eq('id', uid).maybeSingle();
   WORLD = !!(data && data.can_demo);
   profile = data || { total_points: 0, remaining_points: 0, subscription_status: 'inactive' };
   renderPoints();
+  if (data && data.tos_version !== TOS_VERSION) showTerms();
 }
 const isSubscribed = () => ['subscribed','active'].includes(profile?.subscription_status);
 
@@ -618,6 +630,7 @@ function onPos(pos) {
   const { latitude: lat, longitude: lng, accuracy, speed } = pos.coords;
   lastPos = { lat, lng, accuracy, speed, heading: pos.coords.heading, t: Date.now() };
   const mph = speed ? Math.round(speed * 2.237) : null;
+  updateDriveLock(mph);
   if (nav && puck && !puck._map) puck.setLngLat([lng, lat]).addTo(map);
   updateNavLive(lat, lng, pos.coords.heading);
   checkApproach(lat, lng, pos.coords.heading);
@@ -912,9 +925,69 @@ function sideOf(lat, lng, heading, tLat, tLng) {
   const rel = ((bearing(lat, lng, tLat, tLng) - heading) + 360) % 360;
   return rel > 20 && rel < 160 ? 'on your right' : rel > 200 && rel < 340 ? 'on your left' : 'straight ahead';
 }
+/* ---------------- Driving lock (safety) ---------------- */
+let LOCK_MPH = 8, moving = false, movingSince = 0, stoppedSince = 0, passengerUntil = +(localStorage.getItem('cl_passenger') || 0);
+const isPassenger = () => passengerUntil > Date.now();
+const locked = () => moving && !isPassenger();
+function updateDriveLock(mph) {
+  const now = Date.now();
+  if (mph != null && mph >= LOCK_MPH) { stoppedSince = 0; if (!movingSince) movingSince = now; if (!moving && now - movingSince > 2500) { moving = true; onLockChange(); } }
+  else if (mph == null || mph < 3) { movingSince = 0; if (!stoppedSince) stoppedSince = now; if (moving && now - stoppedSince > 4000) { moving = false; onLockChange(); } }
+  else { movingSince = 0; stoppedSince = 0; }
+}
+function onLockChange() {
+  $('drive-lock').classList.toggle('on', locked());
+  if (locked()) {
+    // close anything that needs eyes or fingers; nav turn card and voice keep going
+    endIntro(); const f = $('feed'); if (f) closeFeed();
+    if ($('sheet-root').innerHTML) { closeSheet(); }
+    if (nearOpen) toggleNear();
+  }
+}
+function lockToast() { toast('err', '🚗', 'Eyes on the road', `Screens unlock when you stop. Tokens still collect automatically.`); say('Screens unlock when you stop.'); }
+function setPassenger() {
+  if (!confirm("Only tap this if you are NOT the driver.\n\nPassenger mode unlocks the screens for 2 hours. The driver must never handle the phone while the car is moving.")) return;
+  passengerUntil = Date.now() + 2 * 3600 * 1000; localStorage.setItem('cl_passenger', passengerUntil);
+  sb.rpc('log_passenger', { p_user_agent: navigator.userAgent }).catch(() => {});
+  $('drive-lock').classList.remove('on'); toast('ok', '🧑‍🤝‍🧑', 'Passenger mode on', 'For the next 2 hours.');
+}
+
+/* ---------------- Terms of use gate ---------------- */
+function showTerms() {
+  const old = $('tos-root'); if (old) old.remove();
+  const el = document.createElement('div'); el.id = 'tos-root'; el.className = 'tos-bg';
+  el.innerHTML = `<h1>Before you drive</h1>
+    <p class="fine" style="text-align:left;margin:0 0 12px">Please read and accept. Version ${TOS_VERSION}.</p>
+    <div class="tos-box">
+      <h3>1. Drive safely - this comes first</h3>
+      <p>ChainLane is designed to be used hands-free while driving. Tokens are collected automatically; you never need to touch the phone to earn. <b>Never handle, look at, or interact with the phone while the vehicle is moving.</b> Mount the phone, use the voice guidance, and interact only when safely parked or as a passenger. The app locks its screens while the vehicle is moving; tapping "I'm a passenger" when you are the driver is a violation of these terms.</p>
+      <h3>2. You are responsible for your driving</h3>
+      <p>You are solely responsible for operating your vehicle safely and lawfully, including obeying all traffic laws and local hands-free and distracted-driving laws (which vary by city and state). Never speed, change route unsafely, stop in traffic, or take any risk to reach a token. Tokens are optional; missing one costs you nothing.</p>
+      <h3>3. Assumption of risk and limitation of liability</h3>
+      <p>To the fullest extent permitted by law, ChainLane / SmartblockAI and its owners are not liable for any accident, injury, damage, ticket, loss or claim arising from your use of the app or your driving. You use the app at your own risk. Nothing in the app is a navigation authority; road conditions, closures and signs always take priority over app guidance.</p>
+      <h3>4. Eligibility and account</h3>
+      <p>You must be 18 or older and hold a valid driver's license (or be a passenger). One account per person. Fraudulent collection (GPS spoofing, multiple devices, shared accounts) results in a ban without refund.</p>
+      <h3>5. Points, rewards and subscriptions</h3>
+      <p>Points have no cash value and are redeemable only at the business that issued them, subject to that business honoring its offer. Subscriptions renew monthly until cancelled. Businesses are responsible for the content and accuracy of their own listings, videos and offers.</p>
+      <h3>6. Location and privacy</h3>
+      <p>While the app is open we use your location to collect tokens, show nearby businesses and record collections. We store your email, zip code, collections, redemptions and ad views. See the full Privacy Policy and Terms at mychainlane.com/policies.</p>
+      <p style="color:var(--muted);font-size:12px">This summary is part of the full Terms of Service. If anything here conflicts with the full terms, the full terms apply. [DRAFT - to be reviewed by counsel]</p>
+    </div>
+    <label class="tos-row"><input type="checkbox" id="tos-ok"> I have read and agree. I will not handle the phone while driving.</label>
+    <button class="btn btn-primary" onclick="acceptTerms()">Accept and continue</button>
+    <button class="btn btn-ghost" style="margin-top:10px" onclick="sb.auth.signOut()">I don't agree - sign out</button>`;
+  document.body.appendChild(el);
+}
+async function acceptTerms() {
+  if (!$('tos-ok').checked) return alert('Please tick the box to continue.');
+  const { error } = await sb.rpc('accept_terms', { p_version: TOS_VERSION, p_user_agent: navigator.userAgent });
+  if (error) return alert('Could not save: ' + error.message);
+  profile.tos_version = TOS_VERSION; $('tos-root').remove();
+}
+
 /* ---------------- Nearest tokens list ---------------- */
 let nearOpen = false, nearLast = 0;
-function toggleNear() { nearOpen = !nearOpen; $('near-list').classList.toggle('on', nearOpen); $('near-toggle').textContent = nearOpen ? 'Nearest ▴' : 'Nearest ▾'; if (nearOpen) renderNear(true); }
+function toggleNear() { if (!nearOpen && locked()) { lockToast(); return; } nearOpen = !nearOpen; $('near-list').classList.toggle('on', nearOpen); $('near-toggle').textContent = nearOpen ? 'Nearest ▴' : 'Nearest ▾'; if (nearOpen) renderNear(true); }
 function renderNear(force) {
   if (!nearOpen) return;
   if (!force && Date.now() - nearLast < 2000) return;
@@ -990,6 +1063,7 @@ function sheet(title, subtitle, bodyHtml) {
 }
 
 async function openSheet(which, arg) {
+  if (locked()) { lockToast(); return; }
   if (which === 'token') return isAd(arg) ? sheetAd(arg) : sheetToken(arg);
   setNav(which);
   if (which === 'home') return sheetHome();
@@ -1053,10 +1127,10 @@ function sheetToken(n) {
   const tel = (bz.business_phone || '').replace(/[^0-9+]/g, '');
   const site = bz.business_website ? (bz.business_website.startsWith('http') ? bz.business_website : 'https://' + bz.business_website) : '';
   sheet(n.campaigns?.business_name || 'Token', n.campaigns?.business_address || '', `
-    ${bz.logo_url || bz.offer_image_url ? `<div style="display:flex;gap:12px;align-items:center;margin-bottom:12px">
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px">
       ${bz.logo_url ? `<img src="${esc(bz.logo_url)}" alt="" style="width:64px;height:64px;border-radius:14px;object-fit:cover;background:var(--surface2);flex-shrink:0">` : ''}
-      ${bz.offer_image_url ? `<img src="${esc(bz.offer_image_url)}" alt="" style="flex:1;min-width:0;height:96px;border-radius:14px;object-fit:cover;background:var(--surface2)">` : ''}
-    </div>` : ''}
+      <div style="flex:1;min-width:0">${bz.offer_image_url ? `<img src="${esc(bz.offer_image_url)}" alt="" style="width:100%;height:96px;border-radius:14px;object-fit:cover;background:var(--surface2);display:block">` : offerBanner(bz, n.campaigns?.business_name, bz.offer_title || rwb.reward_name, 96)}</div>
+    </div>
     ${bz.intro_video_url ? `<button class="btn btn-ghost" style="margin:0 0 12px" onclick="introSeen['${n.campaigns?.business_id}']=false;playIntro(nodes.find(x=>x.id==='${n.id}'),bizInfo['${n.campaigns?.business_id}'])">▶ Watch ${esc(n.campaigns?.business_name || 'the')} video</button>` : ''}
     ${bz.offer_title ? `<div class="reward-box" style="border-color:rgba(234,179,8,.45);background:rgba(234,179,8,.08)"><h3 style="color:var(--gold)">🎁 ${esc(bz.offer_title)}</h3><p style="margin:0">Earn ${rwb.reward_cost_points} pts here to unlock</p></div>` : ''}
     ${bz.description ? `<p style="font-size:14px;line-height:1.5;color:var(--text);margin:0 0 12px">${esc(bz.description)}</p>` : ''}
@@ -1076,7 +1150,10 @@ function sheetToken(n) {
 }
 
 /* ---------------- Home ---------------- */
-const CATS = ['All','Dining','Auto','Beauty','Fitness','Health','Home Services','Retail','Real Estate','Events'];
+const CATS = ["All", "Dining", "Coffee & Bakery", "Bars & Nightlife", "Groceries", "Auto", "Gas & Car Wash", "Beauty & Spa", "Barber", "Fitness & Gym", "Health & Medical", "Dental", "Pets", "Home Services", "Real Estate", "Retail & Shopping", "Electronics", "Entertainment", "Events", "Kids & Education", "Professional Services", "Financial & Insurance", "Hotels & Travel", "Other"];
+function bizHue(id) { let h = 0; for (const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h % 360; }
+function offerBanner(bz, name, title, h) { const hue = bizHue(bz.id || name); return `<div style="width:100%;height:${h}px;border-radius:14px;background:linear-gradient(135deg,hsl(${hue},70%,45%),hsl(${(hue+40)%360},70%,30%));display:flex;flex-direction:column;justify-content:flex-end;padding:12px;color:#fff;box-sizing:border-box"><div style="font-size:10px;letter-spacing:1px;opacity:.85;font-weight:700">${esc(name || '')}</div><div style="font-size:${h > 120 ? 20 : 15}px;font-weight:800;line-height:1.15">${esc(title || '')}</div></div>`; }
+const catLabel = bz => bz.category === 'Other' && bz.category_other ? bz.category_other : bz.category;
 let homeCat = 'All', homeQ = '';
 function sheetHome() {
   sheet('Home', '', `<div class="subtabs"><button id="ht-feed" onclick="setHomeTab('feed')">▶ Feed</button><button id="ht-listings" onclick="setHomeTab('listings')">Listings</button></div>
@@ -1106,6 +1183,7 @@ function renderHome() {
   let list = homeEntries().map(e => ({ ...e, bz: bizInfo[e.bid] || {} }));
   chips.innerHTML = [...CATS, 'Sponsored'].map(c => `<button class="chip ${c === homeCat ? 'on' : ''}" onclick="homeCat='${c}';renderHome()">${c}</button>`).join('');
   list = list.filter(e => homeCat === 'All' || (homeCat === 'Sponsored' ? isAd(e.n) : (e.bz.category || '') === homeCat));
+  if (homeCat !== 'All') list = list.filter(e => !isAd(e.n) || homeCat === 'Sponsored');
   if (q) list = list.filter(e => [e.n.campaigns?.business_name, e.bz.offer_title, e.bz.tagline, e.bz.description, e.bz.category, e.n.campaigns?.ad_title].join(' ').toLowerCase().includes(q));
   list.sort((a, b) => (b.bz.featured ? 1 : 0) - (a.bz.featured ? 1 : 0) || (a.d ?? 1e12) - (b.d ?? 1e12));
   const el = $('home-list');
@@ -1119,8 +1197,8 @@ function renderHome() {
       <div class="hcard-top"><div class="hcard-logo" ${logo}>${bz.logo_url ? '' : (ad ? '▶' : esc(n.token_type))}</div>
         <div class="hcard-name">${esc(n.campaigns?.business_name || 'Business')}${bz.featured ? '<span class="hbadge hfeat">★ Featured</span>' : ''}</div>
         <div class="hcard-dist">${d != null ? fmtDist(d) : ''}</div></div>
-      ${img ? `<img class="hcard-img" src="${esc(img)}" alt="" loading="lazy">` : ''}
-      <div class="hcard-body"><div class="hcard-cat">${esc(bz.category || (ad ? 'Sponsored' : 'Local business'))}</div>
+      ${img ? `<img class="hcard-img" src="${esc(img)}" alt="" loading="lazy">` : (ad ? '' : `<div style="padding:0 12px">${offerBanner(bz, n.campaigns?.business_name, offer, 130)}</div>`)}
+      <div class="hcard-body"><div class="hcard-cat">${esc(catLabel(bz) || (ad ? 'Sponsored' : 'Local business'))}</div>
         <div class="hcard-offer">${ad ? '▶ ' : '🎁 '}${esc(offer)}</div>
         <div class="hcard-sub">${ad ? 'Sponsored video · free to watch' : `Earn +${n.point_value} pts per drive-by · ${rewardFor(bz.id).reward_cost_points} pts unlocks it`}${bz.tagline ? ' · ' + esc(bz.tagline) : ''}</div></div></div>`; }).join('');
 }
@@ -1148,7 +1226,7 @@ function openFeed() {
         <div class="hcard-top" style="padding:0"><div class="hcard-logo" ${bz.logo_url ? `style="background-image:url('${esc(bz.logo_url)}')"` : `style="background:${COLORS[n.token_type] || '#00D4FF'}"`}>${bz.logo_url ? '' : (ad ? '▶' : esc(n.token_type))}</div>
           <div class="hcard-name" style="color:#fff">${esc(n.campaigns?.business_name || '')}</div><div class="hcard-dist">${d != null ? fmtDist(d) : ''}</div></div>
         <h3>${ad ? '' : '🎁 '}${esc(title)}</h3>
-        <p>${ad ? 'Sponsored' : `+${n.point_value} pts per drive-by`}${bz.category ? ' · ' + esc(bz.category) : ''}${n.campaigns?.business_address ? ' · ' + esc(n.campaigns.business_address) : ''}</p>
+        <p>${ad ? 'Sponsored' : `+${n.point_value} pts per drive-by`}${catLabel(bz) ? ' · ' + esc(catLabel(bz)) : ''}${n.campaigns?.business_address ? ' · ' + esc(n.campaigns.business_address) : ''}</p>
         <div class="fcard-row"><button class="btn btn-ghost" style="background:rgba(255,255,255,.12);color:#fff" onclick="closeFeed();closeSheet();openSheet('token', nodes.find(x => x.id === '${n.id}'))">Details</button>
           <button class="btn btn-primary" onclick="closeFeed();closeSheet();startNav('${n.id}')">🧭 Navigate</button></div>
       </div></div>`; }).join('');
