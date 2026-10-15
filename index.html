@@ -81,7 +81,8 @@
     .labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
     .labels span:last-child { color: var(--accent); }
     #near-count { cursor: pointer; text-decoration: underline dotted; }
-    .near-list { display: none; margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
+    .near-list { display: none; margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; max-height: 300px; overflow-y: auto; }
+    .near-more { font-size: 11px; color: var(--muted); text-align: center; padding: 6px 0 2px; }
     .near-list.on { display: block; }
     .near-row { display: flex; align-items: center; gap: 10px; padding: 8px 2px; border-bottom: 1px solid var(--border); cursor: pointer; }
     .near-row:last-child { border-bottom: 0; }
@@ -341,7 +342,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v31';
+const BUILD = 'v32';
 const TOS_VERSION = '2026-10-14';   // bump when the terms text changes; every driver must accept again
 const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_-BhG4wJldST1w9mtVfyRDg_afXUM6hE';
@@ -545,6 +546,8 @@ function initMap() {
   map.addControl(geolocate, 'bottom-right');
   map.on('load', () => { try { geolocate.trigger(); } catch (e) {} });
   map.on('error', e => console.warn('map error', e?.error?.message));
+  map.on('click', () => { if (nearOpen) toggleNear(); });
+  map.on('dragstart', () => { if (nearOpen) toggleNear(); });
   const userMoved = e => { if (nav && e.originalEvent) { navFreeUntil = Date.now() + 20000; $('recenter').classList.add('on'); } };
   map.on('dragstart', userMoved); map.on('zoomstart', userMoved); map.on('rotatestart', userMoved); map.on('pitchstart', userMoved);
 }
@@ -994,7 +997,7 @@ function renderNear(force) {
   nearLast = Date.now();
   const el = $('near-list');
   if (!lastPos) { el.innerHTML = '<div class="near-sub" style="padding:6px 2px">Waiting for your location…</div>'; return; }
-  const top = nodes.map(n => ({ n, d: distM(lastPos.lat, lastPos.lng, n.lat, n.lng) })).sort((a, b) => a.d - b.d).slice(0, 5);
+  const top = nodes.map(n => ({ n, d: distM(lastPos.lat, lastPos.lng, n.lat, n.lng) })).sort((a, b) => a.d - b.d);
   if (!top.length) { el.innerHTML = '<div class="near-sub" style="padding:6px 2px">No tokens on the map yet.</div>'; return; }
   el.innerHTML = top.map(({ n, d }) => {
     const bid = n.campaigns?.business_id, bz = bizInfo[bid] || {};
@@ -1005,7 +1008,7 @@ function renderNear(force) {
     return `<div class="near-row" onclick="toggleNear();openSheet('token', nodes.find(x => x.id === '${n.id}'))">
       <div class="near-logo" ${logo}>${bz.logo_url ? '' : (isAd(n) ? '▶' : esc(n.token_type))}</div>
       <div class="near-main"><div class="near-name">${esc(n.campaigns?.business_name || 'Token')}</div><div class="near-sub">${sub}</div></div>
-      <div class="near-dist">${fmtDist(d)}</div></div>`; }).join('');
+      <div class="near-dist">${fmtDist(d)}</div></div>`; }).join('') + (top.length > 5 ? `<div class="near-more">${top.length} tokens · scroll for more</div>` : '');
 }
 
 function checkApproach(lat, lng, heading) {
