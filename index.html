@@ -343,7 +343,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v33';
+const BUILD = 'v34';
 const TOS_VERSION = '2026-10-14';   // bump when the terms text changes; every driver must accept again
 const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_-BhG4wJldST1w9mtVfyRDg_afXUM6hE';
@@ -515,7 +515,9 @@ function setFocus(bid, name) { if (!bid) return; focusBiz = { id: bid, name }; r
 async function loadProfile() {
   const uid = session?.user?.id; if (!uid) return;
   await loadBalances();
-  const { data } = await sb.from('users').select('full_name,email,zip_code,total_points,remaining_points,subscription_status,subscription_end,is_banned,created_at,can_demo,tos_version').eq('id', uid).maybeSingle();
+  const { data, error } = await sb.from('users').select('full_name,email,zip_code,total_points,remaining_points,subscription_status,subscription_end,is_banned,created_at,can_demo,tos_version').eq('id', uid).maybeSingle();
+  if (error) toast('err', '⚠️', 'Profile failed to load', error.message);
+  else if (!data) toast('err', '⚠️', 'No profile row', 'This login has no users record');
   WORLD = !!(data && data.can_demo);
   profile = data || { total_points: 0, remaining_points: 0, subscription_status: 'inactive' };
   renderPoints();
@@ -559,7 +561,7 @@ async function loadNodes() {
   const { data, error } = await sb.from('token_nodes')
     .select('id,token_type,point_value,latitude,longitude,remaining,is_active,campaign_id,campaigns(business_id,business_name,business_address,ad_title,ad_video_url,ad_link_url,ad_description,ad_paused,ad_no_credit)')
     .eq('is_active', true).eq('is_demo', WORLD).or('remaining.gt.0,token_type.eq.AD');
-  if (error) { console.warn(error); return; }
+  if (error) { console.warn(error); toast('err', '⚠️', 'Tokens failed to load', error.message); return; }
   nodes = (data || []).filter(n => !isAd(n) || (n.campaigns && n.campaigns.ad_video_url && !n.campaigns.ad_paused && !n.campaigns.ad_no_credit)).map(n => ({ ...n, lat: +n.latitude, lng: +n.longitude }));
   const bids = [...new Set(nodes.map(n => n.campaigns?.business_id).filter(Boolean))].filter(id => !bizInfo[id]);
   if (bids.length) sb.from('business_public').select('*').in('id', bids).then(({ data }) => { (data || []).forEach(b => bizInfo[b.id] = b); drawMarkers(); if ($('home-list')) renderHome(); });
