@@ -127,6 +127,15 @@
     .recenter.on { display: block; }
     .dest-pin { font-size: 34px; line-height: 1; filter: drop-shadow(0 2px 4px rgba(0,0,0,.6)); transform: translateY(-14px); }
     .dest-label { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); background: rgba(17,24,39,.95); color: #fff; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 8px; white-space: nowrap; border: 1px solid var(--accent); }
+    .soc { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+    .soc a, .soc button { background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; padding: 7px 12px; color: var(--text); text-decoration: none; font-size: 12px; font-weight: 700; }
+    .posts { display: flex; gap: 8px; overflow-x: auto; margin: 6px 0 12px; scrollbar-width: none; } .posts::-webkit-scrollbar { display: none; }
+    .post-th { flex-shrink: 0; width: 110px; height: 150px; border-radius: 12px; background: #000 center/cover; position: relative; overflow: hidden; }
+    .post-th video, .post-th img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .post-th .pc { position: absolute; left: 0; right: 0; bottom: 0; padding: 20px 6px 6px; font-size: 11px; color: #fff; background: linear-gradient(transparent, rgba(0,0,0,.8)); }
+    .post-th .pv { position: absolute; top: 6px; right: 6px; font-size: 14px; }
+    .chainbtns { display: flex; gap: 6px; justify-content: center; margin: 10px 0; } .chainbtns button { font-size: 30px; background: none; border: none; opacity: .35; } .chainbtns button.on { opacity: 1; }
+    .moment { width: 100%; border-radius: 14px; display: block; margin-bottom: 12px; border: 1px solid var(--border); }
     .eye { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; font-size: 18px; color: var(--muted); padding: 6px; }
     .drive-lock { position: absolute; left: 12px; right: 12px; bottom: calc(70px + var(--safe-bottom)); z-index: 18; background: rgba(17,24,39,0.97); border: 1px solid var(--warn, #f59e0b); border-radius: 14px; padding: 10px 14px; display: none; align-items: center; gap: 10px; font-size: 13px; }
     .drive-lock.on { display: flex; }
@@ -347,7 +356,8 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v38';
+const BUILD = 'v40';
+const PUBLIC_BASE = 'https://mychainlane.com/b/?s=';
 const TOS_VERSION = '2026-10-14';   // bump when the terms text changes; every driver must accept again
 const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_-BhG4wJldST1w9mtVfyRDg_afXUM6hE';
@@ -466,6 +476,13 @@ async function forgotPassword() {
   authMsg(error ? error.message : 'Password reset email sent.', error ? 'err' : 'ok');
 }
 
+const QS = new URLSearchParams(location.search);
+async function handleDeepLink() {
+  const biz = QS.get('biz'), ref = QS.get('ref');
+  if (ref) { const { data } = await sb.rpc('apply_referral', { p_code: ref }); if (data?.ok) toast('ok', '🤝', 'Invite accepted', 'You and your friend both moved up the waitlist.'); }
+  if (biz) { const n = nodes.find(x => x.campaigns?.business_id === biz); if (n) { map.flyTo({ center: [n.lng, n.lat], zoom: 16 }); setTimeout(() => openSheet('token', n), 600); } else toast('info', '🔎', 'Business not on the map right now', 'It will show when its token is live.'); }
+  if (biz || ref) history.replaceState(null, '', location.pathname);
+}
 async function signOut() { closeSheet(); await sb.auth.signOut(); showAuth(); }
 
 /* ---------------- App ---------------- */
@@ -477,6 +494,7 @@ async function enterApp() {
   await loadNodes();
   startTracking(false);
   pulse(); setInterval(pulse, 60 * 1000);
+  handleDeepLink();
   setInterval(async () => { await loadSettings(); await loadCooldowns(); await loadNodes(); }, 2 * 60 * 1000);
 }
 
@@ -511,7 +529,7 @@ async function loadBalances() {
     sb.from('rewards').select('business_id,reward_name,reward_cost_points').eq('is_active', true)
   ]);
   balances = b || []; rewardsList = r || [];
-  redeemReminders();
+  redeemReminders(); loadRedeemed();
   renderPoints();
 }
 function rewardFor(bid) { return rewardsList.find(r => r.business_id === bid) || rewardsList.find(r => !r.business_id) || { reward_name: 'Reward', reward_cost_points: 100 }; }
@@ -519,7 +537,7 @@ function setFocus(bid, name) { if (!bid) return; focusBiz = { id: bid, name }; r
 async function loadProfile() {
   const uid = session?.user?.id; if (!uid) return;
   await loadBalances();
-  const { data, error } = await sb.from('users').select('full_name,email,zip_code,total_points,remaining_points,subscription_status,subscription_end,is_banned,created_at,can_demo,tos_version').eq('id', uid).maybeSingle();
+  const { data, error } = await sb.from('users').select('full_name,email,zip_code,total_points,remaining_points,subscription_status,subscription_end,is_banned,created_at,can_demo,tos_version,ref_code,referrals').eq('id', uid).maybeSingle();
   if (error) toast('err', '⚠️', 'Profile failed to load', error.message);
   else if (!data) toast('err', '⚠️', 'No profile row', 'This login has no users record');
   WORLD = !!(data && data.can_demo);
@@ -569,6 +587,8 @@ async function loadNodes() {
   nodes = (data || []).filter(n => !isAd(n) || (n.campaigns && n.campaigns.ad_video_url && !n.campaigns.ad_paused && !n.campaigns.ad_no_credit)).map(n => ({ ...n, lat: +n.latitude, lng: +n.longitude }));
   const bids = [...new Set(nodes.map(n => n.campaigns?.business_id).filter(Boolean))].filter(id => !bizInfo[id]);
   if (bids.length) sb.from('business_public').select('*').in('id', bids).then(({ data }) => { (data || []).forEach(b => bizInfo[b.id] = b); drawMarkers(); if ($('home-list')) renderHome(); });
+  const allBids = [...new Set(nodes.map(n => n.campaigns?.business_id).filter(Boolean))];
+  if (allBids.length) sb.from('business_posts').select('*').in('business_id', allBids).order('created_at', { ascending: false }).then(({ data }) => { allBids.forEach(b => postsCache[b] = []); (data || []).forEach(p => { if (postsCache[p.business_id].length < 10) postsCache[p.business_id].push(p); }); });
   const nt = nodes.filter(n => !isAd(n)).length, na = nodes.length - nt;
   $('near-count').textContent = `${nt} token${nt === 1 ? '' : 's'}${na ? ` · ${na} ad${na === 1 ? '' : 's'}` : ''} on map`;
   drawMarkers(); renderNear(true);
@@ -708,6 +728,7 @@ async function tryCollect(n, lat, lng, accuracy) {
       drawMarkers();
       vibrate([60, 40, 60]);
       showArrive(n, data.points);
+      { const bid = n.campaigns?.business_id, bb = balances.find(x => x.business_id === bid), rw = rewardFor(bid); if (bb && bb.balance + data.points >= rw.reward_cost_points && bb.balance < rw.reward_cost_points) setTimeout(() => offerMoment('ready', bid), 9500); }
     } else {
       const r = data?.reason || 'unknown';
       if (r === 'cooldown') setCooldown(n.id);
@@ -1022,6 +1043,137 @@ function sideOf(lat, lng, heading, tLat, tLng) {
   const rel = ((bearing(lat, lng, tLat, tLng) - heading) + 360) % 360;
   return rel > 20 && rel < 160 ? 'on your right' : rel > 200 && rel < 340 ? 'on your left' : 'straight ahead';
 }
+/* ---------------- Social, posts, reviews, share ---------------- */
+let postsCache = {};
+const handleUrl = (v, base) => v ? (v.startsWith('http') ? v : base + v.replace(/^@/, '')) : '';
+function socialRow(bz, n) {
+  const wa = (bz.whatsapp || '').replace(/[^0-9]/g, '');
+  const items = [
+    bz.instagram && `<a href="${esc(handleUrl(bz.instagram, 'https://instagram.com/'))}" target="_blank" rel="noopener">📸 Instagram</a>`,
+    bz.tiktok && `<a href="${esc(handleUrl(bz.tiktok, 'https://tiktok.com/@'))}" target="_blank" rel="noopener">🎵 TikTok</a>`,
+    bz.facebook && `<a href="${esc(handleUrl(bz.facebook, 'https://facebook.com/'))}" target="_blank" rel="noopener">📘 Facebook</a>`,
+    bz.youtube && `<a href="${esc(handleUrl(bz.youtube, 'https://youtube.com/@'))}" target="_blank" rel="noopener">▶️ YouTube</a>`,
+    wa && `<a href="https://wa.me/${wa}?text=${encodeURIComponent('Hi! I found you on ChainLane.')}" target="_blank" rel="noopener">💬 Message us</a>`,
+    bz.google_review_url && `<a href="${esc(bz.google_review_url)}" target="_blank" rel="noopener" style="border-color:var(--gold);color:var(--gold)">⭐ Google review</a>`
+  ].filter(Boolean);
+  const rating = bz.chains_count ? `<div style="font-size:14px;margin:4px 0 2px"><b style="color:var(--gold)">${'⛓'.repeat(Math.round(bz.chains_avg))} ${bz.chains_avg}</b> <span style="color:var(--muted)">· ${bz.chains_count} review${bz.chains_count === 1 ? '' : 's'}</span> <a href="#" onclick="sheetReviews('${bz.id}');return false" style="color:var(--accent);margin-left:6px">read</a>${canRate(bz.id) ? ` · <a href="#" onclick="sheetRate('${bz.id}');return false" style="color:var(--accent)">rate</a>` : ''}</div>`
+                 : (canRate(bz.id) ? `<div style="font-size:13px;margin:4px 0"><a href="#" onclick="sheetRate('${bz.id}');return false" style="color:var(--accent)">⛓ Be the first to rate this business</a></div>` : '');
+  return rating + (items.length ? `<div class="soc">${items.join('')}</div>` : '');
+}
+function postsStrip(bid) {
+  const ps = postsCache[bid];
+  if (ps === undefined && bid) { loadPosts(bid).then(() => { if ($('sheet-body')) { const n = nodes.find(x => x.campaigns?.business_id === bid && !isAd(x)); if (n) sheetToken(n); } }); return ''; }
+  if (!ps || !ps.length) return '';
+  return `<div style="font-size:12px;color:var(--muted);margin-top:4px">Latest posts</div><div class="posts">${ps.map((p, i) => `<div class="post-th" onclick="openPost('${bid}', ${i})">${p.kind === 'video' ? `<video src="${esc(p.media_url)}#t=0.1" preload="metadata" muted playsinline></video><div class="pv">▶</div>` : `<img src="${esc(p.media_url)}" alt="" loading="lazy">`}${p.caption ? `<div class="pc">${esc(p.caption)}</div>` : ''}</div>`).join('')}</div>`;
+}
+async function loadPosts(bid) { const { data } = await sb.from('business_posts').select('*').eq('business_id', bid).order('created_at', { ascending: false }).limit(10); postsCache[bid] = data || []; }
+function openPost(bid, i) {
+  const p = postsCache[bid][i], bz = bizInfo[bid] || {};
+  const old = $('vid-root'); if (old) old.remove();
+  const wrap = document.createElement('div'); wrap.id = 'vid-root'; wrap.className = 'vid-bg';
+  wrap.innerHTML = `<div class="vid-name">${esc(bz.business_name || '')}</div><button class="vid-skip" onclick="endIntro()">✕ Close</button>
+    ${p.kind === 'video' ? `<video id="intro-v" src="${esc(p.media_url)}" playsinline autoplay controls></video>` : `<img src="${esc(p.media_url)}" style="max-width:100%;max-height:100%;object-fit:contain">`}
+    ${p.caption ? `<div style="position:absolute;left:16px;right:16px;bottom:calc(24px + env(safe-area-inset-bottom));color:#fff;font-size:15px;text-shadow:0 1px 4px #000">${esc(p.caption)}</div>` : ''}`;
+  document.body.appendChild(wrap);
+  const v = $('intro-v'); if (v) v.play().catch(() => {});
+}
+// which businesses has this driver redeemed at? (can rate those)
+let redeemedAt = new Set();
+async function loadRedeemed() {
+  const { data } = await sb.from('redemptions').select('business_id,redeemed_at,id').eq('user_id', session.user.id).eq('status', 'redeemed');
+  redeemedAt = new Set((data || []).map(r => r.business_id));
+  // "how was it?" for a redemption scanned since we last looked
+  const seen = JSON.parse(localStorage.getItem('cl_seen_red') || '[]');
+  const fresh = (data || []).filter(r => !seen.includes(r.id) && Date.now() - new Date(r.redeemed_at) < 3 * 86400e3);
+  if (data) localStorage.setItem('cl_seen_red', JSON.stringify((data || []).map(r => r.id)));
+  if (fresh.length && seen.length) { const bid = fresh[0].business_id; if (!bizInfo[bid]) await loadBizInfo(bid); if (!locked()) sheetHowWasIt(bid); }
+}
+const canRate = bid => redeemedAt.has(bid);
+function sheetHowWasIt(bid) {
+  const bz = bizInfo[bid] || {};
+  sheet('How was it?', bz.business_name || '', `
+    <p style="font-size:14px;color:var(--muted);margin-bottom:6px">You just redeemed a reward at ${esc(bz.business_name || 'this business')}. Two quick things that help them a lot:</p>
+    <button class="btn btn-primary" onclick="sheetRate('${bid}')">⛓ Rate them in ChainLane</button>
+    ${bz.google_review_url ? `<a class="btn btn-ghost" style="display:block;text-align:center;text-decoration:none;margin-top:10px" href="${esc(bz.google_review_url)}" target="_blank" rel="noopener">⭐ Leave a Google review</a>` : ''}
+    <button class="btn btn-ghost" style="margin-top:10px" onclick="shareMoment('redeemed','${bid}')">📤 Share this moment</button>
+    <button class="btn btn-ghost" style="margin-top:10px" onclick="closeSheet()">Not now</button>`);
+}
+let rateVal = 0;
+function sheetRate(bid) {
+  const bz = bizInfo[bid] || {}; rateVal = 0;
+  sheet(`Rate ${bz.business_name || ''}`, 'Chains: 1 = meh, 5 = amazing. Only drivers who redeemed here can rate.', `
+    <div class="chainbtns">${[1,2,3,4,5].map(i => `<button id="ch-${i}" onclick="rateVal=${i};[1,2,3,4,5].forEach(k=>$('ch-'+k).classList.toggle('on',k<=${i}))">⛓</button>`).join('')}</div>
+    <textarea class="hsearch" id="rate-c" rows="3" maxlength="300" placeholder="One line about your visit (optional)"></textarea>
+    <button class="btn btn-primary" onclick="submitRate('${bid}')">Post review</button>
+    <p class="fine">No points for reviewing — that keeps it honest. You can change it later.</p>`);
+}
+async function submitRate(bid) {
+  if (!rateVal) return toast('err', '⛓', 'Pick 1 to 5 chains', '');
+  const { data, error } = await sb.rpc('rate_business', { p_business_id: bid, p_chains: rateVal, p_comment: $('rate-c').value.trim() || null });
+  if (error || !data?.ok) return toast('err', '⚠️', 'Could not post', error?.message || ({ not_redeemed: 'Only drivers who redeemed here can rate.' })[data?.reason] || data?.reason || '');
+  toast('ok', '⛓', 'Thanks!', 'Your review is live.'); delete bizInfo[bid]; await loadBizInfo(bid); closeSheet();
+}
+async function sheetReviews(bid) {
+  const bz = bizInfo[bid] || {};
+  sheet(`${bz.business_name || ''} reviews`, bz.chains_count ? `${bz.chains_avg} ⛓ · ${bz.chains_count} verified visits` : '', '<div class="empty">Loading…</div>');
+  const { data } = await sb.from('reviews').select('chains,comment,reply,created_at').eq('business_id', bid).order('created_at', { ascending: false }).limit(30);
+  $('sheet-body').innerHTML = (data || []).map(r => `<div style="padding:8px 0;border-bottom:1px solid var(--border)"><b style="color:var(--gold)">${'⛓'.repeat(r.chains)}</b> <span style="font-size:12px;color:var(--muted)">${fmtDate(r.created_at)}</span>${r.comment ? `<p style="font-size:14px;margin:3px 0 0">${esc(r.comment)}</p>` : ''}${r.reply ? `<div style="margin-top:6px;padding:8px 10px;background:var(--surface2);border-radius:10px;font-size:13px;color:var(--muted)"><b>${esc(bz.business_name)}:</b> ${esc(r.reply)}</div>` : ''}</div>`).join('') || '<div class="empty">No reviews yet.</div>';
+}
+/* share */
+function bizLink(bid) { const bz = bizInfo[bid] || {}; return bz.slug ? PUBLIC_BASE + bz.slug : 'https://app.mychainlane.com/?biz=' + bid; }
+async function shareBiz(bid) {
+  const bz = bizInfo[bid] || {}, rw = rewardFor(bid);
+  const text = `${bz.offer_title || rw.reward_name} at ${bz.business_name}${bz.business_address ? ' (' + bz.business_address.split(',')[0] + ')' : ''} — grab it on ChainLane`;
+  const url = bizLink(bid);
+  if (navigator.share) { try { await navigator.share({ title: bz.business_name, text, url }); return; } catch (e) { if (e.name === 'AbortError') return; } }
+  sheet('Share', bz.business_name || '', `
+    <a class="btn btn-primary" style="display:block;text-align:center;text-decoration:none" href="https://wa.me/?text=${encodeURIComponent(text + ' ' + url)}" target="_blank" rel="noopener">💬 WhatsApp</a>
+    <button class="btn btn-ghost" style="margin-top:10px" onclick="navigator.clipboard.writeText('${url}').then(()=>toast('ok','🔗','Link copied',''))">🔗 Copy link</button>`);
+}
+/* share moments: a 9:16 story card made on the phone */
+async function momentImage(kind, bid) {
+  const bz = bizInfo[bid] || {}, rw = rewardFor(bid), name = bz.business_name || 'a local business';
+  const W = 1080, H = 1920, c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d');
+  const hue = bizHue(bid); const g = x.createLinearGradient(0, 0, W, H); g.addColorStop(0, `hsl(${hue},70%,40%)`); g.addColorStop(1, '#0A0F1E'); x.fillStyle = g; x.fillRect(0, 0, W, H);
+  const loadImg = src => new Promise(res => { if (!src) return res(null); const im = new Image(); im.crossOrigin = 'anonymous'; im.onload = () => res(im); im.onerror = () => res(null); im.src = src; });
+  const [logo, photo] = await Promise.all([loadImg(bz.logo_url), loadImg(bz.offer_image_url)]);
+  if (photo) { x.save(); x.beginPath(); x.roundRect(90, 420, W - 180, 620, 40); x.clip(); const r = Math.max((W - 180) / photo.width, 620 / photo.height); x.drawImage(photo, 90 + ((W - 180) - photo.width * r) / 2, 420 + (620 - photo.height * r) / 2, photo.width * r, photo.height * r); x.restore(); }
+  if (logo) { x.save(); x.beginPath(); x.arc(W / 2, 300, 110, 0, Math.PI * 2); x.clip(); x.drawImage(logo, W / 2 - 110, 190, 220, 220); x.restore(); x.lineWidth = 10; x.strokeStyle = '#fff'; x.beginPath(); x.arc(W / 2, 300, 110, 0, Math.PI * 2); x.stroke(); }
+  x.fillStyle = '#fff'; x.textAlign = 'center'; x.font = '800 54px Space Grotesk, system-ui, sans-serif';
+  const head = kind === 'redeemed' ? 'Just redeemed on ChainLane' : kind === 'ready' ? 'Reward unlocked on ChainLane' : 'Collected on ChainLane';
+  x.fillText(head, W / 2, 1140);
+  x.font = '800 86px Space Grotesk, system-ui, sans-serif';
+  const title = (bz.offer_title || rw.reward_name || '').slice(0, 40); x.fillText(title, W / 2, 1270);
+  x.font = '600 56px Space Grotesk, system-ui, sans-serif'; x.fillStyle = '#d6dbe6'; x.fillText(name, W / 2, 1360);
+  x.font = '500 40px Space Grotesk, system-ui, sans-serif'; x.fillStyle = '#94A3B8'; x.fillText('Drive past, earn points, eat free.', W / 2, 1560);
+  x.fillStyle = '#00D4FF'; x.font = '800 48px Space Grotesk, system-ui, sans-serif'; x.fillText('mychainlane.com', W / 2, 1700);
+  return new Promise(res => c.toBlob(res, 'image/png'));
+}
+async function shareMoment(kind, bid) {
+  if (!bizInfo[bid]) await loadBizInfo(bid);
+  const blob = await momentImage(kind, bid), url = bizLink(bid), bz = bizInfo[bid] || {};
+  const file = new File([blob], 'chainlane-moment.png', { type: 'image/png' });
+  const text = `${kind === 'redeemed' ? 'Just redeemed' : 'Unlocked'} ${bz.offer_title || rewardFor(bid).reward_name} at ${bz.business_name} on ChainLane ${url}`;
+  if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file], text, title: 'ChainLane' }); return; } catch (e) { if (e.name === 'AbortError') return; } }
+  const src = URL.createObjectURL(blob);
+  sheet('Your moment', 'Save the picture, then post it to your Status or story.', `<img class="moment" src="${src}"><a class="btn btn-primary" style="display:block;text-align:center;text-decoration:none" href="${src}" download="chainlane-moment.png">⬇ Save picture</a>
+    <a class="btn btn-ghost" style="display:block;text-align:center;text-decoration:none;margin-top:10px" href="https://wa.me/?text=${encodeURIComponent(text)}" target="_blank">💬 WhatsApp</a>`);
+}
+const momentsOff = () => localStorage.getItem('cl_moments') === 'off';
+function offerMoment(kind, bid) {
+  if (momentsOff() || locked()) return;
+  const el = document.createElement('div'); el.className = 'toast ok'; el.style.position = 'relative';
+  el.innerHTML = `<div class="t-icon">🎉</div><div style="flex:1"><div class="t-main">${kind === 'ready' ? 'Reward unlocked!' : 'Nice one!'}</div><div class="t-sub">Share this moment to your Status / story</div></div><button class="btn btn-primary" style="width:auto;padding:8px 12px;margin:0" onclick="shareMoment('${kind}','${bid}');this.closest('.toast').remove()">Share</button><button onclick="this.parentNode.remove()" style="background:none;border:none;color:var(--muted);font-size:18px;padding:4px 0 4px 8px">✕</button>`;
+  $('toasts').appendChild(el); setTimeout(() => el.remove(), 15000);
+}
+/* invite */
+function inviteLink() { return `https://app.mychainlane.com/?ref=${profile?.ref_code || ''}`; }
+async function invite() {
+  const text = `Join me on ChainLane — drive past local businesses, earn points, get free stuff. Free, Houston. ${inviteLink()}`;
+  if (navigator.share) { try { await navigator.share({ title: 'ChainLane', text }); return; } catch (e) { if (e.name === 'AbortError') return; } }
+  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+}
+
 /* ---------------- Reminders ---------------- */
 const remindedAt = JSON.parse(localStorage.getItem('cl_remind') || '{}');
 function redeemReminders() {
@@ -1054,7 +1206,7 @@ const locked = () => moving && !isPassenger();
 function updateDriveLock(mph) {
   const now = Date.now();
   if (mph != null && mph >= LOCK_MPH) { stoppedSince = 0; if (!movingSince) movingSince = now; if (!moving && now - movingSince > 2500) { moving = true; onLockChange(); } }
-  else if (mph == null || mph < 3) { movingSince = 0; if (!stoppedSince) stoppedSince = now; if (moving && now - stoppedSince > 4000) { moving = false; onLockChange(); } }
+  else if (mph == null || mph < 3) { movingSince = 0; if (!stoppedSince) stoppedSince = now; if (moving && now - stoppedSince > 4000) { moving = false; lockWarned = false; onLockChange(); } }
   else { movingSince = 0; stoppedSince = 0; }
 }
 function onLockChange() {
@@ -1066,7 +1218,8 @@ function onLockChange() {
     if (nearOpen) toggleNear();
   }
 }
-function lockToast() { toast('err', '🚗', 'Eyes on the road', `Screens unlock when you stop. Tokens still collect automatically.`); say('Screens unlock when you stop.'); }
+let lockWarned = false;
+function lockToast() { if (lockWarned) return; lockWarned = true; toast('err', '🚗', 'Eyes on the road', `Screens unlock when you stop. Tokens still collect automatically.`); say('Screens unlock when you stop.'); }
 function setPassenger() {
   if (!confirm("Only tap this if you are NOT the driver.\n\nPassenger mode unlocks the screens for 2 hours. The driver must never handle the phone while the car is moving.")) return;
   passengerUntil = Date.now() + 2 * 3600 * 1000; localStorage.setItem('cl_passenger', passengerUntil);
@@ -1168,9 +1321,11 @@ function hideArrive() { $('arrive').classList.remove('on'); }
 
 /* ---------------- Toasts ---------------- */
 function toast(kind, icon, main, sub) {
+  // one copy of the same message at a time
+  for (const t of $('toasts').children) if (t.dataset.key === main) return;
   const el = document.createElement('div');
-  el.className = `toast ${kind}`;
-  el.innerHTML = `<div class="t-icon">${icon}</div><div><div class="t-main">${esc(main)}</div><div class="t-sub">${esc(sub || '')}</div></div>`;
+  el.className = `toast ${kind}`; el.dataset.key = main; el.style.position = 'relative';
+  el.innerHTML = `<div class="t-icon">${icon}</div><div style="flex:1;min-width:0;padding-right:22px"><div class="t-main">${esc(main)}</div><div class="t-sub">${esc(sub || '')}</div></div><button onclick="this.parentNode.remove()" style="position:absolute;top:6px;right:8px;background:none;border:none;color:var(--muted);font-size:18px;line-height:1;padding:4px">✕</button>`;
   $('toasts').appendChild(el);
   setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity 0.4s'; setTimeout(() => el.remove(), 400); }, 4500);
 }
@@ -1208,7 +1363,8 @@ function sheetAd(n) {
     ${link ? `<a class="btn btn-primary" style="display:block;text-align:center;text-decoration:none" href="${esc(link)}" target="_blank" rel="noopener">Learn more ↗</a>` : ''}
     ${tel ? `<a class="btn btn-ghost" style="display:block;text-align:center;text-decoration:none;margin-top:10px" href="tel:${tel}">📞 Call ${esc(bz.business_phone)}</a>` : ''}
     <button class="btn btn-ghost" style="margin-top:10px" onclick="startNav('${n.id}')">🧭 Navigate here</button>
-    <button class="btn btn-ghost" style="margin-top:10px" onclick="try{$('adv').pause()}catch(e){};closeSheet();map.flyTo({center:[${n.lng},${n.lat}],zoom:17,pitch:0,duration:900})">📍 See location</button>`);
+    <button class="btn btn-ghost" style="margin-top:10px" onclick="try{$('adv').pause()}catch(e){};closeSheet();map.flyTo({center:[${n.lng},${n.lat}],zoom:17,pitch:0,duration:900})">📍 See location</button>
+    <button class="btn btn-ghost" style="margin-top:10px" onclick="shareBiz('${c.business_id}')">📤 Share</button>`);
   const v = $('adv');
   v.addEventListener('timeupdate', async () => {
     if (adCounted[n.id] || v.currentTime < 5) return;
@@ -1259,6 +1415,8 @@ function sheetToken(n) {
     ${bz.hours ? `<div class="row"><span style="color:var(--muted)">Hours</span><span>${esc(bz.hours)}</span></div>` : ''}
     ${tel ? `<div class="row"><span style="color:var(--muted)">Phone</span><a href="tel:${tel}" style="color:var(--accent);text-decoration:none">${esc(bz.business_phone)}</a></div>` : ''}
     ${site ? `<div class="row"><span style="color:var(--muted)">Website</span><a href="${esc(site)}" target="_blank" style="color:var(--accent);text-decoration:none">${esc(site.replace(/^https?:\/\//, ''))}</a></div>` : ''}
+    ${socialRow(bz, n)}
+    ${postsStrip(n.campaigns?.business_id)}
     <p class="fine" style="margin:10px 0;text-align:left">You have <b style="color:var(--text)">${bb ? bb.balance : 0} pts</b> at this business · ${rwb.reward_cost_points} needed for ${esc(rwb.reward_name)}</p>
     <div class="stat-grid">
       <div class="stat"><b style="color:${c}">+${n.point_value}</b><span>points</span></div>
@@ -1268,6 +1426,7 @@ function sheetToken(n) {
     ${!isSubscribed() && !WAITLIST ? `<button class="btn btn-primary" onclick="openStripe()">Subscribe — $10/mo</button>` : ''}
     <button class="btn btn-primary" style="margin-top:10px" onclick="startNav('${n.id}')">🧭 Navigate here</button>
     <button class="btn btn-ghost" style="margin-top:10px" onclick="askDetour('${n.id}')">↪ Grab it on my way to…</button>
+    <button class="btn btn-ghost" style="margin-top:10px" onclick="shareBiz('${n.campaigns?.business_id}')">📤 Share</button>
     <button class="btn btn-ghost" style="margin-top:10px" onclick="map.flyTo({center:[${n.lng},${n.lat}],zoom:16});closeSheet()">Show on map</button>
     <p class="fine">Keep ChainLane open and the screen on — the token is collected automatically as you pass it. <a href="https://www.google.com/maps/dir/?api=1&destination=${n.lat},${n.lng}&travelmode=driving" target="_blank">Open in Google Maps</a> instead if you prefer, but collection pauses while this page is in the background.</p>`);
 }
@@ -1329,7 +1488,9 @@ function renderHome() {
 let feedObs = null, feedMuted = false;
 function feedItems() {
   const list = homeEntries().map(e => ({ ...e, bz: bizInfo[e.bid] || {} }));
-  const vids = list.filter(e => isAd(e.n) ? !!e.n.campaigns?.ad_video_url : !!e.bz.intro_video_url);
+  let vids = list.filter(e => isAd(e.n) ? !!e.n.campaigns?.ad_video_url : !!e.bz.intro_video_url);
+  // business posts (videos) join the feed
+  Object.entries(postsCache).forEach(([bid, ps]) => (ps || []).filter(p => p.kind === 'video').slice(0, 3).forEach(p => { const e = list.find(x => x.bid === bid && !isAd(x.n)); if (e) vids.push({ ...e, post: p }); }));
   vids.sort((a, b) => (b.bz.featured ? 1 : 0) - (a.bz.featured ? 1 : 0) || (a.d ?? 1e12) - (b.d ?? 1e12));
   return vids;
 }
@@ -1338,9 +1499,9 @@ function openFeed() {
   const vids = feedItems();
   if (!vids.length) { toast('info', '▶', 'No videos yet', 'Businesses that add a video show up in the feed.'); homeTab = 'listings'; renderHome(); return; }
   const el = document.createElement('div'); el.id = 'feed'; el.className = 'feed';
-  el.innerHTML = vids.map(({ n, d, bz }, i) => {
-    const ad = isAd(n), src = ad ? n.campaigns.ad_video_url : bz.intro_video_url;
-    const title = ad ? (n.campaigns.ad_title || 'Video ad') : (bz.offer_title || rewardFor(bz.id).reward_name);
+  el.innerHTML = vids.map(({ n, d, bz, post }, i) => {
+    const ad = isAd(n), src = post ? post.media_url : (ad ? n.campaigns.ad_video_url : bz.intro_video_url);
+    const title = post ? (post.caption || 'New post') : ad ? (n.campaigns.ad_title || 'Video ad') : (bz.offer_title || rewardFor(bz.id).reward_name);
     return `<div class="fslide" data-i="${i}">
       <video src="${esc(src)}" playsinline preload="${i < 2 ? 'auto' : 'metadata'}" data-node="${n.id}" data-ad="${ad ? 1 : 0}" ontimeupdate="feedTime(this)" onended="feedNext(${i})" onclick="feedToggle(this)"></video>
       <div class="ftop"><span style="color:#fff;font-weight:800;text-shadow:0 1px 4px #000">${i + 1} / ${vids.length}</span><button class="x" onclick="closeFeed()">✕ Close</button></div>
@@ -1448,6 +1609,8 @@ function sheetProfile() {
     <div class="row"><span>Member since</span><span>${fmtDate(profile?.created_at)}</span></div>
     <div class="row"><span>Device</span><span style="font-size:11px;color:var(--muted)">${deviceId.slice(0, 8)}</span></div>
     ${subbed ? '' : `<button class="btn btn-primary" style="margin-top:14px" onclick="openStripe()">Subscribe — $10/mo</button>`}
+    <button class="btn btn-primary" style="margin-top:10px" onclick="invite()">🤝 Invite a friend${profile?.referrals ? ` · ${profile.referrals} joined` : ''}</button>
+    <button class="btn btn-ghost" style="margin-top:10px" onclick="localStorage.setItem('cl_moments', momentsOff() ? 'on' : 'off'); sheetProfile()">${momentsOff() ? '🔕 Share-moment pop-ups: off' : '🔔 Share-moment pop-ups: on'}</button>
     <button class="btn btn-ghost" style="margin-top:10px" onclick="promptPromo()">Have a promo code?</button>
     <button class="btn btn-ghost" style="margin-top:10px" onclick="changePassword()">Change password</button>
     <button class="btn btn-ghost" style="margin-top:10px" onclick="refreshAll()">Refresh data</button>
