@@ -356,7 +356,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v43';
+const BUILD = 'v44';
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
 const PUBLIC_BASE = 'https://mychainlane.com/b/?s=';
@@ -1492,7 +1492,7 @@ let feedObs = null, feedMuted = false;
 function feedItems() {
   const list = homeEntries().map(e => ({ ...e, bz: bizInfo[e.bid] || {} }));
   // one video per business: its newest post video if it has one, otherwise its token video; ads are separate
-  let vids = list.filter(e => isAd(e.n) ? !!e.n.campaigns?.ad_video_url : !!e.bz.intro_video_url).map(e => { if (isAd(e.n)) return e; const p = (postsCache[e.bid] || []).find(x => x.kind === 'video'); return p && p.media_url !== e.bz.intro_video_url ? { ...e, post: p } : e; });
+  let vids = list.filter(e => isAd(e.n) ? !!e.n.campaigns?.ad_video_url : !!e.bz.intro_video_url).map(e => { if (isAd(e.n)) return e; const p = (postsCache[e.bid] || []).find(x => x.media_url === e.bz.intro_video_url); return p ? { ...e, post: p } : e; });
   vids.sort((a, b) => (b.bz.featured ? 1 : 0) - (a.bz.featured ? 1 : 0) || (a.d ?? 1e12) - (b.d ?? 1e12));
   return vids;
 }
