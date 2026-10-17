@@ -134,7 +134,7 @@
     .post-th video, .post-th img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .post-th .pc { position: absolute; left: 0; right: 0; bottom: 0; padding: 20px 6px 6px; font-size: 11px; color: #fff; background: linear-gradient(transparent, rgba(0,0,0,.8)); }
     .post-th .pv { position: absolute; top: 6px; right: 6px; font-size: 14px; }
-    .chainbtns { display: flex; gap: 6px; justify-content: center; margin: 10px 0; } .chainbtns button { font-size: 30px; background: none; border: none; opacity: .35; } .chainbtns button.on { opacity: 1; }
+    .chainbtns { display: flex; gap: 6px; justify-content: center; margin: 10px 0; } .chainbtns button { background: none; border: none; padding: 4px; }
     .moment { width: 100%; border-radius: 14px; display: block; margin-bottom: 12px; border: 1px solid var(--border); }
     .eye { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; font-size: 18px; color: var(--muted); padding: 6px; }
     .drive-lock { position: absolute; left: 12px; right: 12px; bottom: calc(70px + var(--safe-bottom)); z-index: 18; background: rgba(17,24,39,0.97); border: 1px solid var(--warn, #f59e0b); border-radius: 14px; padding: 10px 14px; display: none; align-items: center; gap: 10px; font-size: 13px; }
@@ -356,7 +356,9 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v40';
+const BUILD = 'v41';
+const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
+const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
 const PUBLIC_BASE = 'https://mychainlane.com/b/?s=';
 const TOS_VERSION = '2026-10-14';   // bump when the terms text changes; every driver must accept again
 const SUPABASE_URL  = 'https://edafadvqtdwfcrpqcvri.supabase.co';
@@ -1056,8 +1058,8 @@ function socialRow(bz, n) {
     wa && `<a href="https://wa.me/${wa}?text=${encodeURIComponent('Hi! I found you on ChainLane.')}" target="_blank" rel="noopener">💬 Message us</a>`,
     bz.google_review_url && `<a href="${esc(bz.google_review_url)}" target="_blank" rel="noopener" style="border-color:var(--gold);color:var(--gold)">⭐ Google review</a>`
   ].filter(Boolean);
-  const rating = bz.chains_count ? `<div style="font-size:14px;margin:4px 0 2px"><b style="color:var(--gold)">${'⛓'.repeat(Math.round(bz.chains_avg))} ${bz.chains_avg}</b> <span style="color:var(--muted)">· ${bz.chains_count} review${bz.chains_count === 1 ? '' : 's'}</span> <a href="#" onclick="sheetReviews('${bz.id}');return false" style="color:var(--accent);margin-left:6px">read</a>${canRate(bz.id) ? ` · <a href="#" onclick="sheetRate('${bz.id}');return false" style="color:var(--accent)">rate</a>` : ''}</div>`
-                 : (canRate(bz.id) ? `<div style="font-size:13px;margin:4px 0"><a href="#" onclick="sheetRate('${bz.id}');return false" style="color:var(--accent)">⛓ Be the first to rate this business</a></div>` : '');
+  const rating = bz.chains_count ? `<div style="font-size:14px;margin:4px 0 2px">${chainsHtml(bz.chains_avg)} <b style="color:var(--gold)">${bz.chains_avg}</b> <span style="color:var(--muted)">· ${bz.chains_count} review${bz.chains_count === 1 ? '' : 's'}</span> <a href="#" onclick="sheetReviews('${bz.id}');return false" style="color:var(--accent);margin-left:6px">read</a>${canRate(bz.id) ? ` · <a href="#" onclick="sheetRate('${bz.id}');return false" style="color:var(--accent)">rate</a>` : ''}</div>`
+                 : (canRate(bz.id) ? `<div style="font-size:13px;margin:4px 0"><a href="#" onclick="sheetRate('${bz.id}');return false" style="color:var(--accent)">${chainsHtml(0)} Be the first to rate this business</a></div>` : '');
   return rating + (items.length ? `<div class="soc">${items.join('')}</div>` : '');
 }
 function postsStrip(bid) {
@@ -1093,7 +1095,7 @@ function sheetHowWasIt(bid) {
   const bz = bizInfo[bid] || {};
   sheet('How was it?', bz.business_name || '', `
     <p style="font-size:14px;color:var(--muted);margin-bottom:6px">You just redeemed a reward at ${esc(bz.business_name || 'this business')}. Two quick things that help them a lot:</p>
-    <button class="btn btn-primary" onclick="sheetRate('${bid}')">⛓ Rate them in ChainLane</button>
+    <button class="btn btn-primary" onclick="sheetRate('${bid}')">Rate them in ChainLane</button>
     ${bz.google_review_url ? `<a class="btn btn-ghost" style="display:block;text-align:center;text-decoration:none;margin-top:10px" href="${esc(bz.google_review_url)}" target="_blank" rel="noopener">⭐ Leave a Google review</a>` : ''}
     <button class="btn btn-ghost" style="margin-top:10px" onclick="shareMoment('redeemed','${bid}')">📤 Share this moment</button>
     <button class="btn btn-ghost" style="margin-top:10px" onclick="closeSheet()">Not now</button>`);
@@ -1102,22 +1104,22 @@ let rateVal = 0;
 function sheetRate(bid) {
   const bz = bizInfo[bid] || {}; rateVal = 0;
   sheet(`Rate ${bz.business_name || ''}`, 'Chains: 1 = meh, 5 = amazing. Only drivers who redeemed here can rate.', `
-    <div class="chainbtns">${[1,2,3,4,5].map(i => `<button id="ch-${i}" onclick="rateVal=${i};[1,2,3,4,5].forEach(k=>$('ch-'+k).classList.toggle('on',k<=${i}))">⛓</button>`).join('')}</div>
+    <div class="chainbtns">${[1,2,3,4,5].map(i => `<button id="ch-${i}" onclick="rateVal=${i};[1,2,3,4,5].forEach(k=>{$('ch-'+k).innerHTML=CHAIN_SVG(k<=${i},44)})">${CHAIN_SVG(false,44)}</button>`).join('')}</div>
     <textarea class="hsearch" id="rate-c" rows="3" maxlength="300" placeholder="One line about your visit (optional)"></textarea>
     <button class="btn btn-primary" onclick="submitRate('${bid}')">Post review</button>
     <p class="fine">No points for reviewing — that keeps it honest. You can change it later.</p>`);
 }
 async function submitRate(bid) {
-  if (!rateVal) return toast('err', '⛓', 'Pick 1 to 5 chains', '');
+  if (!rateVal) return toast('err', '🔗', 'Pick 1 to 5 chains', '');
   const { data, error } = await sb.rpc('rate_business', { p_business_id: bid, p_chains: rateVal, p_comment: $('rate-c').value.trim() || null });
   if (error || !data?.ok) return toast('err', '⚠️', 'Could not post', error?.message || ({ not_redeemed: 'Only drivers who redeemed here can rate.' })[data?.reason] || data?.reason || '');
-  toast('ok', '⛓', 'Thanks!', 'Your review is live.'); delete bizInfo[bid]; await loadBizInfo(bid); closeSheet();
+  toast('ok', '🔗', 'Thanks!', 'Your review is live.'); delete bizInfo[bid]; await loadBizInfo(bid); closeSheet();
 }
 async function sheetReviews(bid) {
   const bz = bizInfo[bid] || {};
-  sheet(`${bz.business_name || ''} reviews`, bz.chains_count ? `${bz.chains_avg} ⛓ · ${bz.chains_count} verified visits` : '', '<div class="empty">Loading…</div>');
+  sheet(`${bz.business_name || ''} reviews`, bz.chains_count ? `${bz.chains_avg} of 5 chains · ${bz.chains_count} verified visits` : '', '<div class="empty">Loading…</div>');
   const { data } = await sb.from('reviews').select('chains,comment,reply,created_at').eq('business_id', bid).order('created_at', { ascending: false }).limit(30);
-  $('sheet-body').innerHTML = (data || []).map(r => `<div style="padding:8px 0;border-bottom:1px solid var(--border)"><b style="color:var(--gold)">${'⛓'.repeat(r.chains)}</b> <span style="font-size:12px;color:var(--muted)">${fmtDate(r.created_at)}</span>${r.comment ? `<p style="font-size:14px;margin:3px 0 0">${esc(r.comment)}</p>` : ''}${r.reply ? `<div style="margin-top:6px;padding:8px 10px;background:var(--surface2);border-radius:10px;font-size:13px;color:var(--muted)"><b>${esc(bz.business_name)}:</b> ${esc(r.reply)}</div>` : ''}</div>`).join('') || '<div class="empty">No reviews yet.</div>';
+  $('sheet-body').innerHTML = (data || []).map(r => `<div style="padding:8px 0;border-bottom:1px solid var(--border)">${chainsHtml(r.chains)} <span style="font-size:12px;color:var(--muted)">${fmtDate(r.created_at)}</span>${r.comment ? `<p style="font-size:14px;margin:3px 0 0">${esc(r.comment)}</p>` : ''}${r.reply ? `<div style="margin-top:6px;padding:8px 10px;background:var(--surface2);border-radius:10px;font-size:13px;color:var(--muted)"><b>${esc(bz.business_name)}:</b> ${esc(r.reply)}</div>` : ''}</div>`).join('') || '<div class="empty">No reviews yet.</div>';
 }
 /* share */
 function bizLink(bid) { const bz = bizInfo[bid] || {}; return bz.slug ? PUBLIC_BASE + bz.slug : 'https://app.mychainlane.com/?biz=' + bid; }
