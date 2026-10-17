@@ -335,7 +335,7 @@
   <div class="turn" id="turn"><div class="t-ic" id="t-ic">⬆️</div><div style="flex:1"><div class="t-dist" id="t-dist"></div><div class="t-ins" id="t-ins"></div><div class="t-then" id="t-then"></div></div></div>
   <button class="recenter" id="recenter" onclick="recenterNav()">⌖ Re-center</button>
   <div class="drive-lock" id="exit-hint" style="border-color:var(--accent)"><span style="font-size:22px">📍</span><div><b>Tap the street you pull out onto</b>We'll start routes from there whenever you're parked here.</div><button onclick="cancelSetExit()">Cancel</button></div>
-  <div class="drive-lock" id="drive-lock"><span style="font-size:22px">🚗</span><div><b>Eyes on the road</b>Tokens collect automatically. Screens unlock when you stop.</div><button onclick="setPassenger()">I'm a passenger</button></div>
+  <div class="drive-lock" id="drive-lock" style="position:absolute;flex-wrap:wrap;padding-right:40px"><span style="font-size:22px">🚗</span><div style="flex:1;min-width:0"><b>Eyes on the road</b>You're moving, so tapping is locked. Tokens still collect by themselves and voice keeps guiding you. Tap ✕ only if you're not the driver.</div><button onclick="setPassenger()">I'm a passenger</button><button onclick="ackLock()" style="position:absolute;top:6px;right:8px;background:none;border:none;color:var(--muted);font-size:20px;padding:4px 6px;margin:0">✕</button></div>
   <div class="navbar" id="navbar"><div style="flex:1"><div class="n-main" id="n-main"></div><div class="n-sub" id="n-sub"></div></div><button id="n-routes" onclick="showRoutePicker()" style="margin-left:0">Routes</button><button id="n-mode" onclick="toggleNavMode()" style="margin-left:0">🚗 Drive</button><button id="n-exit" onclick="startSetExit()" style="margin-left:0" title="Tell the app where you pull out onto the road">📍 My street</button><button onclick="stopNav()">End</button></div>
 
   <button class="fab left" onclick="openSheet('rewards')" title="Rewards">🎁</button>
@@ -356,7 +356,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v41';
+const BUILD = 'v42';
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
 const PUBLIC_BASE = 'https://mychainlane.com/b/?s=';
@@ -1204,11 +1204,11 @@ function breakReminder(mph) {
 /* ---------------- Driving lock (safety) ---------------- */
 let WAITLIST = false, LOCK_MPH = 8, moving = false, movingSince = 0, stoppedSince = 0, passengerUntil = +(localStorage.getItem('cl_passenger') || 0);
 const isPassenger = () => passengerUntil > Date.now();
-const locked = () => moving && !isPassenger();
+const locked = () => moving && !isPassenger() && !lockAck;
 function updateDriveLock(mph) {
   const now = Date.now();
   if (mph != null && mph >= LOCK_MPH) { stoppedSince = 0; if (!movingSince) movingSince = now; if (!moving && now - movingSince > 2500) { moving = true; onLockChange(); } }
-  else if (mph == null || mph < 3) { movingSince = 0; if (!stoppedSince) stoppedSince = now; if (moving && now - stoppedSince > 4000) { moving = false; lockWarned = false; onLockChange(); } }
+  else if (mph == null || mph < 3) { movingSince = 0; if (!stoppedSince) stoppedSince = now; if (moving && now - stoppedSince > 4000) { moving = false; lockAck = false; onLockChange(); } }
   else { movingSince = 0; stoppedSince = 0; }
 }
 function onLockChange() {
@@ -1220,8 +1220,9 @@ function onLockChange() {
     if (nearOpen) toggleNear();
   }
 }
-let lockWarned = false;
-function lockToast() { if (lockWarned) return; lockWarned = true; toast('err', '🚗', 'Eyes on the road', `Screens unlock when you stop. Tokens still collect automatically.`); say('Screens unlock when you stop.'); }
+let lockAck = false;
+function lockToast() { /* no extra pop-up: the banner explains the lock */ }
+function ackLock() { lockAck = true; $('drive-lock').classList.remove('on'); sb.rpc('log_passenger', { p_user_agent: 'ack:' + navigator.userAgent }).catch(() => {}); }
 function setPassenger() {
   if (!confirm("Only tap this if you are NOT the driver.\n\nPassenger mode unlocks the screens for 2 hours. The driver must never handle the phone while the car is moving.")) return;
   passengerUntil = Date.now() + 2 * 3600 * 1000; localStorage.setItem('cl_passenger', passengerUntil);
