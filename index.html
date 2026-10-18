@@ -270,7 +270,7 @@
     <div class="logo"><img src="/img/logo-full-dark.png" alt="ChainLane" style="width:260px;max-width:80%;height:auto;display:block;"></div>
     <div class="tabs">
       <button class="tab active" id="tab-in" onclick="authTab('in')">Sign In</button>
-      <button class="tab" id="tab-up" onclick="authTab('up')">Create Account</button>
+      <button class="tab" id="tab-up" onclick="authTab('up')">Join the Waitlist</button>
     </div>
     <div id="auth-msg" class="msg"></div>
 
@@ -282,12 +282,14 @@
     </form>
 
     <form id="form-up" class="hidden" onsubmit="return signUp(event)">
+      <h2 style="margin:0 0 4px;font-size:20px;text-align:center">Join the Driver Waitlist</h2>
+      <p class="fine" style="margin:0 0 14px;text-align:center">Free. We'll turn on rewards for your area as tokens go live.</p>
       <div class="field"><input id="up-name" type="text" placeholder="Full name" autocomplete="name" required /></div>
       <div class="field"><input id="up-email" type="email" placeholder="Email" autocomplete="email" required /></div>
       <div class="field" style="position:relative"><input id="up-pass" type="password" placeholder="Password (6+ characters)" autocomplete="new-password" minlength="6" required style="padding-right:44px" /><button type="button" class="eye" onclick="togglePw('up-pass',this)">👁</button></div>
       <div class="field"><input id="up-zip" type="text" inputmode="numeric" placeholder="Zip code" pattern="[0-9]{5}" maxlength="5" required /></div>
       <div class="field"><input id="up-promo" type="text" placeholder="Promo code (optional)" autocapitalize="characters" style="text-transform:uppercase" /></div>
-      <button class="btn btn-primary" id="up-btn" type="submit">Create Account</button>
+      <button class="btn btn-primary" id="up-btn" type="submit">Join the Waitlist — Free</button>
       <p class="fine">By signing up you agree to our <a href="https://mychainlane.com/policies/" target="_blank">terms and privacy policy</a>.</p>
     </form>
   </div>
@@ -356,7 +358,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v44';
+const BUILD = 'v45';
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
 const PUBLIC_BASE = 'https://mychainlane.com/b/?s=';
@@ -436,7 +438,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
   if (session) await enterApp(); else showAuth();
 })();
 
-function showAuth() { $('auth').classList.remove('hidden'); $('app').classList.add('hidden'); stopTracking(); }
+function showAuth() { $('auth').classList.remove('hidden'); $('app').classList.add('hidden'); stopTracking(); if (/[?&](signup|join|waitlist)\b/.test(location.search)) authTab('up'); }
 function authTab(t) {
   $('tab-in').classList.toggle('active', t === 'in'); $('tab-up').classList.toggle('active', t === 'up');
   $('form-in').classList.toggle('hidden', t !== 'in'); $('form-up').classList.toggle('hidden', t !== 'up');
@@ -458,9 +460,9 @@ async function signUp(e) {
   e.preventDefault(); authMsg('');
   const name = $('up-name').value.trim(), email = $('up-email').value.trim(), pass = $('up-pass').value, zip = $('up-zip').value.trim();
   if (!/^\d{5}$/.test(zip)) return authMsg('Enter a 5-digit zip code.', 'err');
-  const btn = $('up-btn'); btn.disabled = true; btn.textContent = 'Creating…';
+  const btn = $('up-btn'); btn.disabled = true; btn.textContent = 'Joining…';
   const { data, error } = await sb.auth.signUp({ email, password: pass, options: { data: { full_name: name, zip_code: zip } } });
-  btn.disabled = false; btn.textContent = 'Create Account';
+  btn.disabled = false; btn.textContent = 'Join the Waitlist — Free';
   if (error) return authMsg(error.message, 'err');
   if (!data.session) return authMsg('Check your email to confirm your account, then sign in.', 'ok');
   // profile row is created by the handle_new_user trigger; fill in the extras
