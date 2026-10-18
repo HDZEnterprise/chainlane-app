@@ -358,7 +358,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v45';
+const BUILD = 'v47';
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
 const PUBLIC_BASE = 'https://mychainlane.com/b/?s=';
@@ -469,7 +469,7 @@ async function signUp(e) {
   await sb.from('users').update({ full_name: name, zip_code: zip }).eq('id', data.user.id);
   const promo = $('up-promo').value.trim();
   if (promo) { const { data: r } = await sb.rpc('apply_promo_code', { p_code: promo }); if (r?.ok) toast('earn', '🎉', 'Free subscription applied', `Free through ${new Date(r.free_until + 'T12:00:00').toLocaleDateString()}`); else toast('err', '⚠️', 'Promo code not applied', PROMO_REASONS[r?.reason] || r?.reason || ''); }
-  await enterApp();
+  showWelcome(name);
   return false;
 }
 
@@ -1233,6 +1233,24 @@ function setPassenger() {
 }
 
 /* ---------------- Terms of use gate ---------------- */
+/* waitlist welcome page (shown once, right after sign-up) */
+function showWelcome(name) {
+  $('auth').classList.add('hidden'); $('app').classList.add('hidden');
+  const old = $('welcome-root'); if (old) old.remove();
+  const el = document.createElement('div'); el.id = 'welcome-root'; el.className = 'tos-bg';
+  el.innerHTML = `<div style="max-width:520px;margin:0 auto;text-align:center;padding-top:40px">
+    <img src="/img/logo-full-dark.png" alt="ChainLane" style="width:220px;max-width:70%;height:auto;margin:0 auto 24px;display:block">
+    <div style="font-size:44px;margin-bottom:8px">🎉</div>
+    <h1 style="margin:0 0 14px">You're on the list${name ? ', ' + esc(name.split(' ')[0]) : ''}!</h1>
+    <p style="font-size:16px;line-height:1.55;color:#d6dbe6;margin:0 0 14px">Thanks for joining the ChainLane driver waitlist. We'll email you the moment ChainLane goes live in your area.</p>
+    <p style="font-size:16px;line-height:1.55;color:#d6dbe6;margin:0 0 14px">As an early member you get <b style="color:#fff">unlimited token pickups, free, through the end of 2027</b> — no subscription.</p>
+    <p style="font-size:16px;line-height:1.55;color:#d6dbe6;margin:0 0 28px">Thanks again for being part of this. Get ready to earn free stuff and discounts from your favorite local businesses — just by driving.</p>
+    <button class="btn btn-primary" onclick="closeWelcome()">Got it</button>
+    <p class="fine" style="margin-top:14px">Nothing else to do for now. We'll be in touch — this takes you back to mychainlane.com.</p>
+  </div>`;
+  document.body.appendChild(el);
+}
+async function closeWelcome() { try { await sb.auth.signOut({ scope: 'local' }); } catch (e) {} location.href = 'https://mychainlane.com/'; }
 function showTerms() {
   const old = $('tos-root'); if (old) old.remove();
   const el = document.createElement('div'); el.id = 'tos-root'; el.className = 'tos-bg';
