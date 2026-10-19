@@ -358,7 +358,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v47';
+const BUILD = 'v48';
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
 const PUBLIC_BASE = 'https://mychainlane.com/b/?s=';
@@ -1390,9 +1390,10 @@ function sheetAd(n) {
     <button class="btn btn-ghost" style="margin-top:10px" onclick="shareBiz('${c.business_id}')">📤 Share</button>`);
   const v = $('adv');
   v.addEventListener('timeupdate', async () => {
-    if (adCounted[n.id] || v.currentTime < 5) return;
-    adCounted[n.id] = true;
-    try { await sb.rpc('record_ad_view', { p_node_id: n.id }); } catch (e) {}
+    const today = new Date().toDateString();
+    if (adCounted[n.id] === today || v.currentTime < 5) return;
+    adCounted[n.id] = today;
+    try { await sb.rpc('record_ad_view', { p_node_id: n.id, p_source: 'token' }); } catch (e) {}
   });
   v.play().catch(() => {});
 }
@@ -1533,8 +1534,8 @@ function openFeed() {
           <div class="hcard-name" style="color:#fff">${esc(n.campaigns?.business_name || '')}</div><div class="hcard-dist">${d != null ? fmtDist(d) : ''}</div></div>
         <h3>${ad ? '' : '🎁 '}${esc(title)}</h3>
         <p>${ad ? 'Sponsored' : `+${n.point_value} pts per drive-by`}${catLabel(bz) ? ' · ' + esc(catLabel(bz)) : ''}${n.campaigns?.business_address ? ' · ' + esc(n.campaigns.business_address) : ''}</p>
-        <div class="fcard-row"><button class="btn btn-ghost" style="background:rgba(255,255,255,.12);color:#fff" onclick="closeFeed();closeSheet();openSheet('token', nodes.find(x => x.id === '${n.id}'))">Details</button>
-          <button class="btn btn-primary" onclick="closeFeed();closeSheet();startNav('${n.id}')">🧭 Navigate</button></div>
+        <div class="fcard-row"><button class="btn btn-ghost" style="background:rgba(255,255,255,.12);color:#fff" onclick="feedClick('${n.id}', ${ad ? 'true' : 'false'});closeFeed();closeSheet();openSheet('token', nodes.find(x => x.id === '${n.id}'))">Details</button>
+          <button class="btn btn-primary" onclick="feedClick('${n.id}', ${ad ? 'true' : 'false'});closeFeed();closeSheet();startNav('${n.id}')">🧭 Navigate</button></div>
       </div></div>`; }).join('');
   document.body.appendChild(el);
   feedObs = new IntersectionObserver(entries => {
@@ -1550,11 +1551,8 @@ function closeFeed() { const f = $('feed'); if (f) { f.querySelectorAll('video')
 function feedNext(i) { const f = $('feed'); if (!f) return; const nx = f.querySelector(`.fslide[data-i="${i + 1}"]`); if (nx) nx.scrollIntoView({ behavior: 'smooth' }); else f.querySelector('.fslide[data-i="0"]').scrollIntoView({ behavior: 'smooth' }); }
 function feedToggle(v) { if (v.paused) v.play().catch(() => {}); else v.pause(); }
 function feedMute() { feedMuted = !feedMuted; const f = $('feed'); if (!f) return; f.querySelectorAll('video').forEach(v => v.muted = feedMuted); f.querySelectorAll('.fmute').forEach(b => b.textContent = feedMuted ? '🔇' : '🔊'); }
-function feedTime(v) {
-  if (v.dataset.ad !== '1' || adCounted[v.dataset.node] || v.currentTime < 5) return;
-  adCounted[v.dataset.node] = true;
-  sb.rpc('record_ad_view', { p_node_id: v.dataset.node }).catch(() => {});
-}
+function feedTime(v) { /* feed plays are free for the advertiser; a Details / Navigate tap is what counts */ }
+function feedClick(nodeId, isAd) { if (!isAd) return; sb.rpc('record_ad_view', { p_node_id: nodeId, p_source: 'feed_click' }).catch(() => {}); }
 
 async function sheetRewards() {
   sheet('Rewards', 'Points are kept per business and never expire. Redeem at a business to turn your points there into a reward.', '<div class="empty">Loading…</div>');
