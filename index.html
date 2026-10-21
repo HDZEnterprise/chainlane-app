@@ -358,7 +358,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v50';
+const BUILD = 'v51';
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
 const PUBLIC_BASE = 'https://mychainlane.com/b/?s=';
@@ -461,7 +461,7 @@ async function signUp(e) {
   const name = $('up-name').value.trim(), email = $('up-email').value.trim(), pass = $('up-pass').value, zip = $('up-zip').value.trim();
   if (!/^\d{5}$/.test(zip)) return authMsg('Enter a 5-digit zip code.', 'err');
   const btn = $('up-btn'); btn.disabled = true; btn.textContent = 'Joining…';
-  const { data: taken } = await sb.rpc('is_business_email', { p_email: email }).catch(() => ({ data: false }));
+  const { data: taken } = await Promise.resolve(sb.rpc('is_business_email', { p_email: email })).catch(() => ({ data: false }));
   if (taken) { btn.disabled = false; btn.textContent = 'Join the Waitlist — Free'; return authMsg('That email is a ChainLane business account. Use a different email to drive.', 'err'); }
   const { data, error } = await sb.auth.signUp({ email, password: pass, options: { data: { full_name: name, zip_code: zip } } });
   btn.disabled = false; btn.textContent = 'Join the Waitlist — Free';
@@ -818,7 +818,7 @@ async function startNav(nodeId, dest) {
   const d0 = lastPos ? distM(lastPos.lat, lastPos.lng, n.lat, n.lng) : Infinity;
   const slow = !lastPos || !lastPos.speed || lastPos.speed < 2.2;
   nav = { node: n, dest: dest || null, mode: 'driving', routes: [], sel: 0, route: null, steps: [], stepIdx: 0, offCount: 0, spoken: {}, lastReroute: 0 };
-  sb.rpc('start_nav', { p_node_id: n.id }).catch(() => {});
+  Promise.resolve(sb.rpc('start_nav', { p_node_id: n.id })).catch(() => {});
   if (n) setFocus(n.campaigns?.business_id, n.campaigns?.business_name);
   setNavModeLabel();
   $('navbar').classList.add('on'); $('turn').classList.add('on'); document.body.classList.add('navigating');
@@ -841,7 +841,7 @@ async function startNav(nodeId, dest) {
 function setNavModeLabel() { $('n-mode').textContent = nav?.mode === 'walking' ? '🚶 Walk' : '🚗 Drive'; }
 function toggleNavMode() { if (!nav) return; nav.mode = nav.mode === 'walking' ? 'driving' : 'walking'; setNavModeLabel(); fetchRoutes(true); }
 function stopNav() {
-  if (nav && nav.node) sb.rpc('end_nav', { p_node_id: nav.node.id }).catch(() => {});
+  if (nav && nav.node) Promise.resolve(sb.rpc('end_nav', { p_node_id: nav.node.id })).catch(() => {});
   nav = null; showDestMarker(null); if (navTimer) { clearInterval(navTimer); navTimer = null; }
   $('navbar').classList.remove('on'); $('turn').classList.remove('on'); document.body.classList.remove('navigating'); $('recenter').classList.remove('on'); navFreeUntil = 0;
   if (map.getSource('route')) { map.getSource('route').setData({ type: 'FeatureCollection', features: [] }); map.getSource('route-alt').setData({ type: 'FeatureCollection', features: [] }); map.getSource('route-lead').setData({ type: 'FeatureCollection', features: [] }); }
@@ -1235,11 +1235,11 @@ function onLockChange() {
 }
 let lockAck = false;
 function lockToast() { /* no extra pop-up: the banner explains the lock */ }
-function ackLock() { lockAck = true; $('drive-lock').classList.remove('on'); sb.rpc('log_passenger', { p_user_agent: 'ack:' + navigator.userAgent }).catch(() => {}); }
+function ackLock() { lockAck = true; $('drive-lock').classList.remove('on'); Promise.resolve(sb.rpc('log_passenger', { p_user_agent: 'ack:' + navigator.userAgent })).catch(() => {}); }
 function setPassenger() {
   if (!confirm("Only tap this if you are NOT the driver.\n\nPassenger mode unlocks the screens for 2 hours. The driver must never handle the phone while the car is moving.")) return;
   passengerUntil = Date.now() + 2 * 3600 * 1000; localStorage.setItem('cl_passenger', passengerUntil);
-  sb.rpc('log_passenger', { p_user_agent: navigator.userAgent }).catch(() => {});
+  Promise.resolve(sb.rpc('log_passenger', { p_user_agent: navigator.userAgent })).catch(() => {});
   $('drive-lock').classList.remove('on'); toast('ok', '🧑‍🤝‍🧑', 'Passenger mode on', 'For the next 2 hours.');
 }
 
@@ -1563,7 +1563,7 @@ function feedNext(i) { const f = $('feed'); if (!f) return; const nx = f.querySe
 function feedToggle(v) { if (v.paused) v.play().catch(() => {}); else v.pause(); }
 function feedMute() { feedMuted = !feedMuted; const f = $('feed'); if (!f) return; f.querySelectorAll('video').forEach(v => v.muted = feedMuted); f.querySelectorAll('.fmute').forEach(b => b.textContent = feedMuted ? '🔇' : '🔊'); }
 function feedTime(v) { /* feed plays are free for the advertiser; a Details / Navigate tap is what counts */ }
-function feedClick(nodeId, isAd) { if (!isAd) return; sb.rpc('record_ad_view', { p_node_id: nodeId, p_source: 'feed_click' }).catch(() => {}); }
+function feedClick(nodeId, isAd) { if (!isAd) return; Promise.resolve(sb.rpc('record_ad_view', { p_node_id: nodeId, p_source: 'feed_click' })).catch(() => {}); }
 
 async function sheetRewards() {
   sheet('Rewards', 'Points are kept per business and never expire. Redeem at a business to turn your points there into a reward.', '<div class="empty">Loading…</div>');
