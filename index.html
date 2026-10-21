@@ -358,7 +358,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v48';
+const BUILD = 'v50';
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
 const PUBLIC_BASE = 'https://mychainlane.com/b/?s=';
@@ -435,7 +435,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
     if (evt === 'SIGNED_OUT') showAuth();
     if (evt === 'PASSWORD_RECOVERY') { authTab('in'); authMsg('Signed in via recovery link. Use Profile → Change password.', 'ok'); }
   });
-  if (session) await enterApp(); else showAuth();
+  if (session) { try { await enterApp(); } catch (e) { if (e.message !== 'business login') throw e; } } else showAuth();
 })();
 
 function showAuth() { $('auth').classList.remove('hidden'); $('app').classList.add('hidden'); stopTracking(); if (/[?&](signup|join|waitlist)\b/.test(location.search)) authTab('up'); }
@@ -452,7 +452,7 @@ async function signIn(e) {
   const { error } = await sb.auth.signInWithPassword({ email: $('in-email').value.trim(), password: $('in-pass').value });
   btn.disabled = false; btn.textContent = 'Sign In';
   if (error) return authMsg(error.message, 'err');
-  await enterApp();
+  try { await enterApp(); } catch (e) { if (e.message !== 'business login') throw e; }
   return false;
 }
 
@@ -461,6 +461,8 @@ async function signUp(e) {
   const name = $('up-name').value.trim(), email = $('up-email').value.trim(), pass = $('up-pass').value, zip = $('up-zip').value.trim();
   if (!/^\d{5}$/.test(zip)) return authMsg('Enter a 5-digit zip code.', 'err');
   const btn = $('up-btn'); btn.disabled = true; btn.textContent = 'Joining…';
+  const { data: taken } = await sb.rpc('is_business_email', { p_email: email }).catch(() => ({ data: false }));
+  if (taken) { btn.disabled = false; btn.textContent = 'Join the Waitlist — Free'; return authMsg('That email is a ChainLane business account. Use a different email to drive.', 'err'); }
   const { data, error } = await sb.auth.signUp({ email, password: pass, options: { data: { full_name: name, zip_code: zip } } });
   btn.disabled = false; btn.textContent = 'Join the Waitlist — Free';
   if (error) return authMsg(error.message, 'err');
@@ -541,7 +543,12 @@ function setFocus(bid, name) { if (!bid) return; focusBiz = { id: bid, name }; r
 async function loadProfile() {
   const uid = session?.user?.id; if (!uid) return;
   await loadBalances();
-  const { data, error } = await sb.from('users').select('full_name,email,zip_code,total_points,remaining_points,subscription_status,subscription_end,is_banned,created_at,can_demo,tos_version,ref_code,referrals').eq('id', uid).maybeSingle();
+  const { data, error } = await sb.from('users').select('full_name,email,zip_code,total_points,remaining_points,subscription_status,subscription_end,is_banned,created_at,can_demo,tos_version,ref_code,referrals,is_business').eq('id', uid).maybeSingle();
+  if (data && data.is_business && !data.can_demo) {
+    await sb.auth.signOut({ scope: 'local' }); showAuth();
+    authMsg('This email belongs to a ChainLane business account. Businesses sign in at mychainlane.com/business. To drive, join the waitlist with a different email.', 'err');
+    throw new Error('business login');
+  }
   if (error) toast('err', '⚠️', 'Profile failed to load', error.message);
   else if (!data) toast('err', '⚠️', 'No profile row', 'This login has no users record');
   WORLD = !!(data && data.can_demo);
@@ -691,6 +698,7 @@ function onPos(pos) {
     const el = markers[n.id]?.getElement();
     if (el) el.classList.toggle('near', d <= 150);
     if (onCooldown(n.id) || inFlight.has(n.id)) return;
+    if (!nav || !nav.node || nav.node.id !== n.id) return;   // intentional pickups only: you must be navigating to THIS token
     if (d <= COLLECT_RADIUS_M) { tryCollect(n, lat, lng, accuracy); return; }
     // fast driving: did the path between the last two GPS fixes pass through the circle?
     if (prev && Date.now() - prev.t < 6000) {
@@ -735,7 +743,8 @@ async function tryCollect(n, lat, lng, accuracy) {
       { const bid = n.campaigns?.business_id, bb = balances.find(x => x.business_id === bid), rw = rewardFor(bid); if (bb && bb.balance + data.points >= rw.reward_cost_points && bb.balance < rw.reward_cost_points) setTimeout(() => offerMoment('ready', bid), 9500); }
     } else {
       const r = data?.reason || 'unknown';
-      if (r === 'cooldown') setCooldown(n.id);
+      if (r === 'not_navigating') { setCooldown(n.id, 120_000); toast('info', '🧭', 'Navigate to collect', 'Tap the token and Navigate - pickups only count on purpose.'); }
+      else if (r === 'cooldown') setCooldown(n.id);
       else if (r === 'node_empty' || r === 'node_inactive') { nodes = nodes.filter(x => x.id !== n.id); drawMarkers(); }
       else if (r === 'not_subscribed') { profile.subscription_status = 'inactive'; renderPoints(); }
       else if (r === 'banned') { toast('err', '🚫', 'Account suspended', 'Contact support.'); stopTracking(); setPill('off', 'Suspended'); return; }
@@ -809,6 +818,7 @@ async function startNav(nodeId, dest) {
   const d0 = lastPos ? distM(lastPos.lat, lastPos.lng, n.lat, n.lng) : Infinity;
   const slow = !lastPos || !lastPos.speed || lastPos.speed < 2.2;
   nav = { node: n, dest: dest || null, mode: 'driving', routes: [], sel: 0, route: null, steps: [], stepIdx: 0, offCount: 0, spoken: {}, lastReroute: 0 };
+  sb.rpc('start_nav', { p_node_id: n.id }).catch(() => {});
   if (n) setFocus(n.campaigns?.business_id, n.campaigns?.business_name);
   setNavModeLabel();
   $('navbar').classList.add('on'); $('turn').classList.add('on'); document.body.classList.add('navigating');
@@ -831,6 +841,7 @@ async function startNav(nodeId, dest) {
 function setNavModeLabel() { $('n-mode').textContent = nav?.mode === 'walking' ? '🚶 Walk' : '🚗 Drive'; }
 function toggleNavMode() { if (!nav) return; nav.mode = nav.mode === 'walking' ? 'driving' : 'walking'; setNavModeLabel(); fetchRoutes(true); }
 function stopNav() {
+  if (nav && nav.node) sb.rpc('end_nav', { p_node_id: nav.node.id }).catch(() => {});
   nav = null; showDestMarker(null); if (navTimer) { clearInterval(navTimer); navTimer = null; }
   $('navbar').classList.remove('on'); $('turn').classList.remove('on'); document.body.classList.remove('navigating'); $('recenter').classList.remove('on'); navFreeUntil = 0;
   if (map.getSource('route')) { map.getSource('route').setData({ type: 'FeatureCollection', features: [] }); map.getSource('route-alt').setData({ type: 'FeatureCollection', features: [] }); map.getSource('route-lead').setData({ type: 'FeatureCollection', features: [] }); }
