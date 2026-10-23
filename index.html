@@ -310,6 +310,10 @@
       <div class="labels"><span id="to-next">100 pts to next reward</span><span id="near-count" onclick="toggleNear()">0 tokens on map</span></div>
       <div class="labels" style="margin-top:4px"><span id="online" style="color:var(--success)">● — drivers online</span><span id="near-toggle" onclick="toggleNear()" style="cursor:pointer">Nearest ▾</span></div>
       <div class="near-list" id="near-list"></div>
+      <div id="find-bar" style="margin-top:8px;display:flex;gap:6px;align-items:center">
+        <input class="hsearch" id="find-q" style="margin:0;padding:10px 12px;font-size:14px" placeholder="🔍 tacos, coffee, car wash, gym… near me" autocomplete="off" onfocus="openFind(this.value)" oninput="openFind(this.value)" />
+      </div>
+      <div id="find-chips" style="display:flex;gap:6px;overflow-x:auto;margin-top:6px;scrollbar-width:none"><button class="chip" style="flex-shrink:0" onclick="openFind('Food')">Food</button><button class="chip" style="flex-shrink:0" onclick="openFind('Tacos')">Tacos</button><button class="chip" style="flex-shrink:0" onclick="openFind('Coffee')">Coffee</button><button class="chip" style="flex-shrink:0" onclick="openFind('Bar')">Bar</button><button class="chip" style="flex-shrink:0" onclick="openFind('Gym')">Gym</button><button class="chip" style="flex-shrink:0" onclick="openFind('Car wash')">Car wash</button><button class="chip" style="flex-shrink:0" onclick="openFind('Haircut')">Haircut</button><button class="chip" style="flex-shrink:0" onclick="openFind('Dentist')">Dentist</button><button class="chip" style="flex-shrink:0" onclick="openFind('Pets')">Pets</button><button class="chip" style="flex-shrink:0" onclick="openFind('Groceries')">Groceries</button><button class="chip" style="flex-shrink:0" onclick="openFind('Pizza')">Pizza</button><button class="chip" style="flex-shrink:0" onclick="openFind('Donuts')">Donuts</button></div>
     </div>
 
     <div class="card banner sub hidden" id="sub-banner">
@@ -358,7 +362,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v51';
+const BUILD = 'v52';
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
 const PUBLIC_BASE = 'https://mychainlane.com/b/?s=';
@@ -1472,13 +1476,29 @@ function bizHue(id) { let h = 0; for (const ch of String(id)) h = (h * 31 + ch.c
 function offerBanner(bz, name, title, h) { const hue = bizHue(bz.id || name); return `<div style="width:100%;height:${h}px;border-radius:14px;background:linear-gradient(135deg,hsl(${hue},70%,45%),hsl(${(hue+40)%360},70%,30%));display:flex;flex-direction:column;justify-content:flex-end;padding:12px;color:#fff;box-sizing:border-box"><div style="font-size:10px;letter-spacing:1px;opacity:.85;font-weight:700">${esc(name || '')}</div><div style="font-size:${h > 120 ? 20 : 15}px;font-weight:800;line-height:1.15">${esc(title || '')}</div></div>`; }
 const catLabel = bz => bz.category === 'Other' && bz.category_other ? bz.category_other : bz.category;
 let homeCat = 'All', homeQ = '';
-function sheetHome() {
+// what people type -> which categories / words it should match
+const SYN = { food: ['Dining','Coffee & Bakery','Groceries','taco','pizza','burger','bbq','pho','sushi','wings','chicken','restaurant','grill','kitchen','cafe'], eat: ['Dining'], restaurant: ['Dining'], tacos: ['taco','Dining','mexican','birria'], taco: ['Dining','mexican'], mexican: ['Dining','taco'], pizza: ['Dining'], burger: ['Dining'], bbq: ['Dining','smoke'], coffee: ['Coffee & Bakery','cafe','espresso','latte'], cafe: ['Coffee & Bakery'], donut: ['Coffee & Bakery','donuts'], donuts: ['Coffee & Bakery','donut','kolache'], bakery: ['Coffee & Bakery'], bar: ['Bars & Nightlife','beer','drinks','lounge','pub'], bars: ['Bars & Nightlife'], drinks: ['Bars & Nightlife'], beer: ['Bars & Nightlife'], gym: ['Fitness & Gym','fit','workout'], fitness: ['Fitness & Gym'], workout: ['Fitness & Gym'], car: ['Auto','Gas & Car Wash'], 'car wash': ['Gas & Car Wash','wash'], wash: ['Gas & Car Wash','Wash & Fold','laundry'], gas: ['Gas & Car Wash'], tires: ['Auto','tire'], mechanic: ['Auto'], 'oil change': ['Auto'], glass: ['Auto'], haircut: ['Barber','Beauty & Spa','cut','shave','salon'], barber: ['Barber','cut'], salon: ['Beauty & Spa','Barber'], nails: ['Beauty & Spa','nail'], spa: ['Beauty & Spa'], dentist: ['Dental','teeth','whitening'], dental: ['Dental'], teeth: ['Dental'], doctor: ['Health & Medical'], clinic: ['Health & Medical','Pets'], pharmacy: ['Health & Medical','rx'], pets: ['Pets','pet','vet','dog','cat'], pet: ['Pets','vet'], vet: ['Pets'], dog: ['Pets'], groceries: ['Groceries','market','supermercado'], grocery: ['Groceries'], market: ['Groceries'], laundry: ['Wash & Fold','laundromat'], juice: ['juice','smoothie','Dining'], smoothie: ['juice','Dining'], bike: ['Retail & Shopping','bike'], phone: ['Electronics','cell'], electronics: ['Electronics'], shop: ['Retail & Shopping'], shopping: ['Retail & Shopping'], signs: ['Professional Services','sign'], counseling: ['Health & Medical','counsel'] };
+function searchTerms(q) {
+  q = q.toLowerCase().replace(/\bnear me\b|\bnearby\b|\bclose to me\b|\baround me\b/g, '').trim();
+  const terms = new Set(q.split(/\s+/).filter(w => w.length > 1));
+  if (SYN[q]) SYN[q].forEach(t => terms.add(t.toLowerCase()));
+  [...terms].forEach(w => (SYN[w] || []).forEach(t => terms.add(t.toLowerCase())));
+  return [...terms];
+}
+function openFind(q) {
+  homeQ = q || ''; homeCat = 'All'; homeTab = 'listings';
+  if (!$('home-list')) { sheetHome(true); }
+  const hq = $('home-q'); if (hq) hq.value = homeQ;
+  renderHome();
+  const fq = $('find-q'); if (fq && fq.value !== homeQ) fq.value = homeQ;
+}
+function sheetHome(searching) {
   sheet('Home', '', `<div class="subtabs"><button id="ht-feed" onclick="setHomeTab('feed')">▶ Feed</button><button id="ht-listings" onclick="setHomeTab('listings')">Listings</button></div>
-    <input class="hsearch" id="home-q" placeholder="Search businesses, rewards…" value="${esc(homeQ)}" oninput="homeQ=this.value;renderHome()" />
+    <input class="hsearch" id="home-q" placeholder="🔍 tacos, coffee, car wash… near me" value="${esc(homeQ)}" oninput="homeQ=this.value;renderHome()" />
     <div class="chips" id="home-chips"></div><div id="home-list"></div>`);
   document.querySelector('.sheet').classList.add('tall');
   renderHome();
-  openFeed();
+  if (!searching) openFeed();
 }
 function homeEntries() {
   const by = {};
@@ -1501,11 +1521,15 @@ function renderHome() {
   chips.innerHTML = [...CATS, 'Sponsored'].map(c => `<button class="chip ${c === homeCat ? 'on' : ''}" onclick="homeCat='${c}';renderHome()">${c}</button>`).join('');
   list = list.filter(e => homeCat === 'All' || (homeCat === 'Sponsored' ? isAd(e.n) : (e.bz.category || '') === homeCat));
   if (homeCat !== 'All') list = list.filter(e => !isAd(e.n) || homeCat === 'Sponsored');
-  if (q) list = list.filter(e => [e.n.campaigns?.business_name, e.bz.offer_title, e.bz.tagline, e.bz.description, e.bz.category, e.n.campaigns?.ad_title].join(' ').toLowerCase().includes(q));
-  list.sort((a, b) => (b.bz.featured ? 1 : 0) - (a.bz.featured ? 1 : 0) || (a.d ?? 1e12) - (b.d ?? 1e12));
+  if (q) {
+    const terms = searchTerms(q);
+    list = list.filter(e => { const hay = [e.n.campaigns?.business_name, e.bz.offer_title, e.bz.tagline, e.bz.description, e.bz.category, e.bz.category_other, e.n.campaigns?.ad_title, rewardFor(e.bid).reward_name].join(' ').toLowerCase(); return terms.some(t => hay.includes(t)); });
+    list.sort((a, b) => (a.d ?? 1e12) - (b.d ?? 1e12));   // searching = nearest first
+  } else list.sort((a, b) => (b.bz.featured ? 1 : 0) - (a.bz.featured ? 1 : 0) || (a.d ?? 1e12) - (b.d ?? 1e12));
   const el = $('home-list');
-  if (!list.length) { el.innerHTML = '<div class="empty">Nothing here yet.</div>'; return; }
-  el.innerHTML = list.map(({ n, d, bz }) => {
+  if (!list.length) { el.innerHTML = q ? `<div class="empty">Nothing on ChainLane for "${esc(homeQ)}" yet. Try: food, coffee, car wash, gym, dentist, pets.</div>` : '<div class="empty">Nothing here yet.</div>'; return; }
+  if (q) el.innerHTML = `<div class="small" style="margin:0 0 8px;color:var(--muted)">${list.length} place${list.length === 1 ? '' : 's'} near you, closest first</div>`; else el.innerHTML = '';
+  el.innerHTML += list.map(({ n, d, bz }) => {
     const c = COLORS[n.token_type] || '#00D4FF', ad = isAd(n);
     const logo = bz.logo_url ? `style="background-image:url('${esc(bz.logo_url)}');background-color:${c}"` : `style="background:${c}"`;
     const offer = ad ? (n.campaigns?.ad_title || 'Video ad') : (bz.offer_title || rewardFor(bz.id).reward_name);
@@ -1517,7 +1541,8 @@ function renderHome() {
       ${img ? `<img class="hcard-img" src="${esc(img)}" alt="" loading="lazy">` : (ad ? '' : `<div style="padding:0 12px">${offerBanner(bz, n.campaigns?.business_name, offer, 130)}</div>`)}
       <div class="hcard-body"><div class="hcard-cat">${esc(catLabel(bz) || (ad ? 'Sponsored' : 'Local business'))}</div>
         <div class="hcard-offer">${ad ? '▶ ' : '🎁 '}${esc(offer)}</div>
-        <div class="hcard-sub">${ad ? 'Sponsored video · free to watch' : `Earn +${n.point_value} pts per drive-by · ${rewardFor(bz.id).reward_cost_points} pts unlocks it`}${bz.tagline ? ' · ' + esc(bz.tagline) : ''}</div></div></div>`; }).join('');
+        <div class="hcard-sub">${ad ? 'Sponsored video · free to watch' : `Earn +${n.point_value} pts per drive-by · ${rewardFor(bz.id).reward_cost_points} pts unlocks it`}${bz.tagline ? ' · ' + esc(bz.tagline) : ''}</div>
+        ${q ? `<div style="display:flex;gap:8px;margin-top:8px"><button class="btn btn-primary" style="flex:1;padding:10px" onclick="event.stopPropagation();closeSheet();startNav('${n.id}')">🧭 Navigate${d != null ? ' · ' + fmtDist(d) : ''}</button></div>` : ''}</div></div>`; }).join('');
 }
 
 let feedObs = null, feedMuted = false;
