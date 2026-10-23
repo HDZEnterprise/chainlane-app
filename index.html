@@ -310,10 +310,11 @@
       <div class="labels"><span id="to-next">100 pts to next reward</span><span id="near-count" onclick="toggleNear()">0 tokens on map</span></div>
       <div class="labels" style="margin-top:4px"><span id="online" style="color:var(--success)">● — drivers online</span><span id="near-toggle" onclick="toggleNear()" style="cursor:pointer">Nearest ▾</span></div>
       <div class="near-list" id="near-list"></div>
-      <div id="find-bar" style="margin-top:8px;display:flex;gap:6px;align-items:center">
-        <input class="hsearch" id="find-q" style="margin:0;padding:10px 12px;font-size:14px" placeholder="🔍 tacos, coffee, car wash, gym… near me" autocomplete="off" onfocus="openFind(this.value)" oninput="openFind(this.value)" />
-      </div>
-      <div id="find-chips" style="display:flex;gap:6px;overflow-x:auto;margin-top:6px;scrollbar-width:none"><button class="chip" style="flex-shrink:0" onclick="openFind('Food')">Food</button><button class="chip" style="flex-shrink:0" onclick="openFind('Tacos')">Tacos</button><button class="chip" style="flex-shrink:0" onclick="openFind('Coffee')">Coffee</button><button class="chip" style="flex-shrink:0" onclick="openFind('Bar')">Bar</button><button class="chip" style="flex-shrink:0" onclick="openFind('Gym')">Gym</button><button class="chip" style="flex-shrink:0" onclick="openFind('Car wash')">Car wash</button><button class="chip" style="flex-shrink:0" onclick="openFind('Haircut')">Haircut</button><button class="chip" style="flex-shrink:0" onclick="openFind('Dentist')">Dentist</button><button class="chip" style="flex-shrink:0" onclick="openFind('Pets')">Pets</button><button class="chip" style="flex-shrink:0" onclick="openFind('Groceries')">Groceries</button><button class="chip" style="flex-shrink:0" onclick="openFind('Pizza')">Pizza</button><button class="chip" style="flex-shrink:0" onclick="openFind('Donuts')">Donuts</button></div>
+      <form id="find-bar" style="margin-top:8px;display:flex;gap:6px;align-items:center" onsubmit="event.preventDefault();openFind($('find-q').value);return false;">
+        <input class="hsearch" id="find-q" style="margin:0;padding:10px 12px;font-size:14px;flex:1" placeholder="🔍 tacos, coffee, car wash… near me" autocomplete="off" enterkeyhint="search" />
+        <button type="submit" class="btn btn-primary" style="padding:10px 14px;width:auto">Go</button>
+      </form>
+      <div id="find-chips" style="display:flex;gap:6px;overflow-x:auto;margin-top:6px;scrollbar-width:none"><button class="chip" style="flex-shrink:0" onclick="openFind('Food')">Food</button><button class="chip" style="flex-shrink:0" onclick="openFind('Coffee')">Coffee</button><button class="chip" style="flex-shrink:0" onclick="openFind('Drinks')">Drinks</button><button class="chip" style="flex-shrink:0" onclick="openFind('Gym')">Gym</button><button class="chip" style="flex-shrink:0" onclick="openFind('Car')">Car</button><button class="chip" style="flex-shrink:0" onclick="openFind('Beauty')">Beauty</button><button class="chip" style="flex-shrink:0" onclick="openFind('Health')">Health</button><button class="chip" style="flex-shrink:0" onclick="openFind('Pets')">Pets</button><button class="chip" style="flex-shrink:0" onclick="openFind('Shopping')">Shopping</button><button class="chip" style="flex-shrink:0" onclick="openFind('Services')">Services</button></div>
     </div>
 
     <div class="card banner sub hidden" id="sub-banner">
@@ -362,7 +363,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v53';
+const BUILD = 'v54';
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
 const PUBLIC_BASE = 'https://mychainlane.com/b/?s=';
@@ -1477,7 +1478,7 @@ function offerBanner(bz, name, title, h) { const hue = bizHue(bz.id || name); re
 const catLabel = bz => bz.category === 'Other' && bz.category_other ? bz.category_other : bz.category;
 let homeCat = 'All', homeQ = '';
 // what people type -> which categories / words it should match
-const SYN = { food: ['Dining','Coffee & Bakery','Groceries','taco','pizza','burger','bbq','pho','sushi','wings','chicken','restaurant','grill','kitchen','cafe'], eat: ['Dining'], restaurant: ['Dining'], tacos: ['taco','Dining','mexican','birria'], taco: ['Dining','mexican'], mexican: ['Dining','taco'], pizza: ['Dining'], burger: ['Dining'], bbq: ['Dining','smoke'], coffee: ['Coffee & Bakery','cafe','espresso','latte'], cafe: ['Coffee & Bakery'], donut: ['Coffee & Bakery','donuts'], donuts: ['Coffee & Bakery','donut','kolache'], bakery: ['Coffee & Bakery'], bar: ['Bars & Nightlife','beer','drinks','lounge','pub'], bars: ['Bars & Nightlife'], drinks: ['Bars & Nightlife'], beer: ['Bars & Nightlife'], gym: ['Fitness & Gym','fit','workout'], fitness: ['Fitness & Gym'], workout: ['Fitness & Gym'], car: ['Auto','Gas & Car Wash'], 'car wash': ['Gas & Car Wash','wash'], wash: ['Gas & Car Wash','Wash & Fold','laundry'], gas: ['Gas & Car Wash'], tires: ['Auto','tire'], mechanic: ['Auto'], 'oil change': ['Auto'], glass: ['Auto'], haircut: ['Barber','Beauty & Spa','cut','shave','salon'], barber: ['Barber','cut'], salon: ['Beauty & Spa','Barber'], nails: ['Beauty & Spa','nail'], spa: ['Beauty & Spa'], dentist: ['Dental','teeth','whitening'], dental: ['Dental'], teeth: ['Dental'], doctor: ['Health & Medical'], clinic: ['Health & Medical','Pets'], pharmacy: ['Health & Medical','rx'], pets: ['Pets','pet','vet','dog','cat'], pet: ['Pets','vet'], vet: ['Pets'], dog: ['Pets'], groceries: ['Groceries','market','supermercado'], grocery: ['Groceries'], market: ['Groceries'], laundry: ['Wash & Fold','laundromat'], juice: ['juice','smoothie','Dining'], smoothie: ['juice','Dining'], bike: ['Retail & Shopping','bike'], phone: ['Electronics','cell'], electronics: ['Electronics'], shop: ['Retail & Shopping'], shopping: ['Retail & Shopping'], signs: ['Professional Services','sign'], counseling: ['Health & Medical','counsel'] };
+const SYN = { drinks: ['Bars & Nightlife','Coffee & Bakery','juice','smoothie','beer'], car: ['Auto','Gas & Car Wash','tire','glass','wash'], beauty: ['Beauty & Spa','Barber','nail','salon','cut'], health: ['Health & Medical','Dental','pharmacy','clinic','counsel'], shopping: ['Retail & Shopping','Electronics','Groceries','shop','store'], services: ['Home Services','Professional Services','Financial & Insurance','Real Estate','laundry','wash & fold','sign'], food: ['Dining','Coffee & Bakery','Groceries','taco','pizza','burger','bbq','pho','sushi','wings','chicken','restaurant','grill','kitchen','cafe'], eat: ['Dining'], restaurant: ['Dining'], tacos: ['taco','Dining','mexican','birria'], taco: ['Dining','mexican'], mexican: ['Dining','taco'], pizza: ['Dining'], burger: ['Dining'], bbq: ['Dining','smoke'], coffee: ['Coffee & Bakery','cafe','espresso','latte'], cafe: ['Coffee & Bakery'], donut: ['Coffee & Bakery','donuts'], donuts: ['Coffee & Bakery','donut','kolache'], bakery: ['Coffee & Bakery'], bar: ['Bars & Nightlife','beer','drinks','lounge','pub'], bars: ['Bars & Nightlife'], drinks: ['Bars & Nightlife'], beer: ['Bars & Nightlife'], gym: ['Fitness & Gym','fit','workout'], fitness: ['Fitness & Gym'], workout: ['Fitness & Gym'], car: ['Auto','Gas & Car Wash'], 'car wash': ['Gas & Car Wash','wash'], wash: ['Gas & Car Wash','Wash & Fold','laundry'], gas: ['Gas & Car Wash'], tires: ['Auto','tire'], mechanic: ['Auto'], 'oil change': ['Auto'], glass: ['Auto'], haircut: ['Barber','Beauty & Spa','cut','shave','salon'], barber: ['Barber','cut'], salon: ['Beauty & Spa','Barber'], nails: ['Beauty & Spa','nail'], spa: ['Beauty & Spa'], dentist: ['Dental','teeth','whitening'], dental: ['Dental'], teeth: ['Dental'], doctor: ['Health & Medical'], clinic: ['Health & Medical','Pets'], pharmacy: ['Health & Medical','rx'], pets: ['Pets','pet','vet','dog','cat'], pet: ['Pets','vet'], vet: ['Pets'], dog: ['Pets'], groceries: ['Groceries','market','supermercado'], grocery: ['Groceries'], market: ['Groceries'], laundry: ['Wash & Fold','laundromat'], juice: ['juice','smoothie','Dining'], smoothie: ['juice','Dining'], bike: ['Retail & Shopping','bike'], phone: ['Electronics','cell'], electronics: ['Electronics'], shop: ['Retail & Shopping'], shopping: ['Retail & Shopping'], signs: ['Professional Services','sign'], counseling: ['Health & Medical','counsel'] };
 function searchTerms(q) {
   q = q.toLowerCase().replace(/\bnear me\b|\bnearby\b|\bclose to me\b|\baround me\b/g, '').trim();
   const terms = new Set(q.split(/\s+/).filter(w => w.length > 1));
@@ -1486,11 +1487,26 @@ function searchTerms(q) {
   return [...terms];
 }
 function openFind(q) {
-  homeQ = q || ''; homeCat = 'All'; homeTab = 'listings';
-  if (!$('home-list')) { sheetHome(true); }
-  const hq = $('home-q'); if (hq) hq.value = homeQ;
-  renderHome();
-  const fq = $('find-q'); if (fq && fq.value !== homeQ) fq.value = homeQ;
+  q = (q || '').trim(); if (!q) return;
+  const fq = $('find-q'); if (fq) { fq.value = ''; fq.blur(); }
+  const terms = searchTerms(q);
+  let list = homeEntries().map(e => ({ ...e, bz: bizInfo[e.bid] || {} })).filter(e => !isAd(e.n));
+  list = list.filter(e => { const hay = [e.n.campaigns?.business_name, e.bz.offer_title, e.bz.tagline, e.bz.description, e.bz.category, e.bz.category_other, rewardFor(e.bid).reward_name].join(' ').toLowerCase(); return terms.some(t => hay.includes(t)); });
+  list.sort((a, b) => (a.d ?? 1e12) - (b.d ?? 1e12));
+  const body = !list.length ? `<div class="empty">Nothing on ChainLane for "${esc(q)}" near you yet.</div>` :
+    `<div class="small" style="margin:0 0 8px;color:var(--muted)">${list.length} place${list.length === 1 ? '' : 's'}, closest first</div>` + list.map(({ n, d, bz }) => {
+      const c = COLORS[n.token_type] || '#00D4FF';
+      const logo = bz.logo_url ? `style="background-image:url('${esc(bz.logo_url)}');background-color:${c}"` : `style="background:${c}"`;
+      const offer = bz.offer_title || rewardFor(bz.id).reward_name;
+      return `<div class="hcard" onclick="closeSheet();openSheet('token', nodes.find(x => x.id === '${n.id}'))">
+        <div class="hcard-top"><div class="hcard-logo" ${logo}>${bz.logo_url ? '' : esc(n.token_type)}</div>
+          <div class="hcard-name">${esc(n.campaigns?.business_name || 'Business')}</div><div class="hcard-dist">${d != null ? fmtDist(d) : ''}</div></div>
+        <div class="hcard-body"><div class="hcard-cat">${esc(catLabel(bz) || 'Local business')}${n.campaigns?.business_address ? ' · ' + esc(n.campaigns.business_address) : ''}</div>
+          <div class="hcard-offer">🎁 ${esc(offer)}</div>
+          <div class="hcard-sub">+${n.point_value} pts per drive-by · ${rewardFor(bz.id).reward_cost_points} pts unlocks it</div>
+          <div style="display:flex;gap:8px;margin-top:8px"><button class="btn btn-primary" style="flex:1;padding:10px" onclick="event.stopPropagation();closeSheet();startNav('${n.id}')">🧭 Navigate${d != null ? ' · ' + fmtDist(d) : ''}</button></div></div></div>`; }).join('');
+  sheet(`"${q}" near me`, '', body);
+  document.querySelector('.sheet').classList.add('tall');
 }
 function sheetHome(searching) {
   sheet('Home', '', `<div class="subtabs"><button id="ht-feed" onclick="setHomeTab('feed')">▶ Feed</button><button id="ht-listings" onclick="setHomeTab('listings')">Listings</button></div>
