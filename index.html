@@ -362,7 +362,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v52';
+const BUILD = 'v53';
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
 const PUBLIC_BASE = 'https://mychainlane.com/b/?s=';
@@ -513,7 +513,7 @@ async function pulse() {
   try {
     if (document.visibilityState === 'visible') await sb.rpc('heartbeat');
     const { data } = await sb.rpc('online_count', { p_demo: WORLD });
-    if (typeof data === 'number') $('online').textContent = `● ${fmtCount(data)} driver${data === 1 ? '' : 's'} online`;
+    if (typeof data === 'number') $('online').textContent = WORLD ? `● ${fmtCount(data)} Drivers Online` : `● ${fmtCount(data)} driver${data === 1 ? '' : 's'} online`;
   } catch (e) {}
 }
 async function loadSettings() {
