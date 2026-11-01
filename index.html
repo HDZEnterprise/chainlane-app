@@ -289,6 +289,8 @@
       <div class="field" style="position:relative"><input id="up-pass" type="password" placeholder="Password (6+ characters)" autocomplete="new-password" minlength="6" required style="padding-right:44px" /><button type="button" class="eye" onclick="togglePw('up-pass',this)">👁</button></div>
       <div class="field"><input id="up-zip" type="text" inputmode="numeric" placeholder="Zip code" pattern="[0-9]{5}" maxlength="5" required /></div>
       <div class="field"><input id="up-promo" type="text" placeholder="Promo code (optional)" autocapitalize="characters" style="text-transform:uppercase" /></div>
+      <div style="margin:4px 0 10px"><div style="font-size:14px;font-weight:700;margin-bottom:6px">What would you like for free? <span style="color:var(--muted);font-weight:400">pick a few</span></div>
+        <div id="up-interests" style="display:flex;flex-wrap:wrap;gap:6px"><button type="button" class="chip" data-i="Food & Dining" onclick="this.classList.toggle('on')">Food & Dining</button><button type="button" class="chip" data-i="Coffee & Bakery" onclick="this.classList.toggle('on')">Coffee & Bakery</button><button type="button" class="chip" data-i="Drinks & Nightlife" onclick="this.classList.toggle('on')">Drinks & Nightlife</button><button type="button" class="chip" data-i="Gym & Fitness" onclick="this.classList.toggle('on')">Gym & Fitness</button><button type="button" class="chip" data-i="Beauty & Salon" onclick="this.classList.toggle('on')">Beauty & Salon</button><button type="button" class="chip" data-i="Car Care" onclick="this.classList.toggle('on')">Car Care</button><button type="button" class="chip" data-i="Health & Dental" onclick="this.classList.toggle('on')">Health & Dental</button><button type="button" class="chip" data-i="Pets" onclick="this.classList.toggle('on')">Pets</button><button type="button" class="chip" data-i="Groceries" onclick="this.classList.toggle('on')">Groceries</button><button type="button" class="chip" data-i="Shopping" onclick="this.classList.toggle('on')">Shopping</button><button type="button" class="chip" data-i="Entertainment & Events" onclick="this.classList.toggle('on')">Entertainment & Events</button><button type="button" class="chip" data-i="Kids & Family" onclick="this.classList.toggle('on')">Kids & Family</button><button type="button" class="chip" data-i="Home Services" onclick="this.classList.toggle('on')">Home Services</button></div></div>
       <button class="btn btn-primary" id="up-btn" type="submit">Join the Waitlist — Free</button>
       <p class="fine">By signing up you agree to our <a href="https://mychainlane.com/policies/" target="_blank">terms and privacy policy</a>.</p>
     </form>
@@ -363,7 +365,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v54';
+const BUILD = 'v57';
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
 const PUBLIC_BASE = 'https://mychainlane.com/b/?s=';
@@ -473,7 +475,8 @@ async function signUp(e) {
   if (error) return authMsg(error.message, 'err');
   if (!data.session) return authMsg('Check your email to confirm your account, then sign in.', 'ok');
   // profile row is created by the handle_new_user trigger; fill in the extras
-  await sb.from('users').update({ full_name: name, zip_code: zip }).eq('id', data.user.id);
+  const interests = [...document.querySelectorAll('#up-interests .chip.on')].map(b => b.dataset.i);
+  await sb.from('users').update({ full_name: name, zip_code: zip, interests }).eq('id', data.user.id);
   const promo = $('up-promo').value.trim();
   if (promo) { const { data: r } = await sb.rpc('apply_promo_code', { p_code: promo }); if (r?.ok) toast('earn', '🎉', 'Free subscription applied', `Free through ${new Date(r.free_until + 'T12:00:00').toLocaleDateString()}`); else toast('err', '⚠️', 'Promo code not applied', PROMO_REASONS[r?.reason] || r?.reason || ''); }
   showWelcome(name);
@@ -489,7 +492,8 @@ async function forgotPassword() {
 
 const QS = new URLSearchParams(location.search);
 async function handleDeepLink() {
-  const biz = QS.get('biz'), ref = QS.get('ref');
+  const biz = QS.get('biz'), ref = QS.get('ref'), rc = QS.get('redeem') || QS.get('c');
+  if (rc) { history.replaceState(null, '', location.pathname); setTimeout(() => sheetCounter(parseInt(rc, 10)), 400); return; }
   if (ref) { const { data } = await sb.rpc('apply_referral', { p_code: ref }); if (data?.ok) toast('ok', '🤝', 'Invite accepted', 'You and your friend both moved up the waitlist.'); }
   if (biz) { const n = nodes.find(x => x.campaigns?.business_id === biz); if (n) { map.flyTo({ center: [n.lng, n.lat], zoom: 16 }); setTimeout(() => openSheet('token', n), 600); } else toast('info', '🔎', 'Business not on the map right now', 'It will show when its token is live.'); }
   if (biz || ref) history.replaceState(null, '', location.pathname);
@@ -548,7 +552,7 @@ function setFocus(bid, name) { if (!bid) return; focusBiz = { id: bid, name }; r
 async function loadProfile() {
   const uid = session?.user?.id; if (!uid) return;
   await loadBalances();
-  const { data, error } = await sb.from('users').select('full_name,email,zip_code,total_points,remaining_points,subscription_status,subscription_end,is_banned,created_at,can_demo,tos_version,ref_code,referrals,is_business').eq('id', uid).maybeSingle();
+  const { data, error } = await sb.from('users').select('full_name,email,zip_code,total_points,remaining_points,subscription_status,subscription_end,is_banned,created_at,can_demo,tos_version,ref_code,referrals,is_business,interests').eq('id', uid).maybeSingle();
   if (data && data.is_business && !data.can_demo) {
     await sb.auth.signOut({ scope: 'local' }); showAuth();
     authMsg('This email belongs to a ChainLane business account. Businesses sign in at mychainlane.com/business. To drive, join the waitlist with a different email.', 'err');
@@ -1109,13 +1113,53 @@ async function loadRedeemed() {
   if (fresh.length && seen.length) { const bid = fresh[0].business_id; if (!bizInfo[bid]) await loadBizInfo(bid); if (!locked()) sheetHowWasIt(bid); }
 }
 const canRate = bid => redeemedAt.has(bid);
+/* ---- counter sticker: driver scans the QR at the register ---- */
+let counterTimer = null;
+async function sheetCounter(code) {
+  if (!code) return;
+  sheet('Redeem at the counter', '', '<div class="empty">Checking…</div>');
+  const { data: r, error } = await sb.rpc('counter_lookup', { p_code: code });
+  if (error || !r?.ok) {
+    const why = r?.reason === 'unknown_code' ? 'This sticker is not active. Ask the business to contact ChainLane.' : (error?.message || 'Could not read this sticker.');
+    return sheet('Redeem at the counter', '', `<div class="empty">${esc(why)}</div><button class="btn btn-ghost" style="margin-top:10px" onclick="closeSheet()">Close</button>`);
+  }
+  const can = r.balance >= r.cost, logo = r.logo ? `<div class="hcard-logo" style="background-image:url('${esc(r.logo)}');width:56px;height:56px;margin:0 auto 10px"></div>` : '';
+  if (!r.reward || !r.has_tokens) return sheet(r.business, '', `${logo}<div class="empty">Nothing available here yet.<br><span style="font-size:13px">This business has no token on the road right now, so there is nothing to redeem.</span></div><button class="btn btn-ghost" style="margin-top:10px" onclick="closeSheet()">Close</button>`);
+  sheet(r.business, '', `${logo}
+    <div class="reward-box" style="text-align:center"><h3 style="font-size:20px">🎁 ${esc(r.reward)}</h3><p>${r.cost} pts · you have <b style="color:${can ? 'var(--success)' : 'var(--gold)'}">${r.balance}</b> here${r.pts_each ? ` · ${r.pts_each} pts per pickup` : ''}</p>
+    ${r.cl_buys_first ? '<p style="color:var(--accent);font-weight:700">🔥 ChainLane is buying the first one here - one pickup = 100 pts right now</p>' : ''}</div>
+    ${can ? `<button class="btn btn-primary" onclick="doCounterRedeem(${code})">Redeem now</button><p class="fine">Tap only when you are at the counter - the screen that follows is what you show them.</p>`
+          : `<div class="empty">You need ${r.cost - r.balance} more points at ${esc(r.business)}. Navigate to their token and drive through it to earn more.</div>`}
+    <button class="btn btn-ghost" style="margin-top:10px" onclick="closeSheet()">Not now</button>`);
+}
+async function doCounterRedeem(code) {
+  const btn = document.querySelector('#sheet-body .btn-primary'); if (btn) { btn.disabled = true; btn.textContent = 'Redeeming…'; }
+  const { data: r, error } = await sb.rpc('redeem_at_counter', { p_code: code, p_lat: lastPos?.lat ?? null, p_lng: lastPos?.lng ?? null });
+  if (error || !r?.ok) {
+    const R = { too_far: `You need to be at the business to redeem (you are ${r?.meters || '?'} m away).`, already_today: 'You already redeemed here today. Come back tomorrow!', not_enough: `Not enough points here yet (${r?.have}/${r?.need}).`, no_reward: 'This business has not set a reward yet.', unknown_code: 'This sticker is not active.', banned: 'This account is blocked.' };
+    toast('err', '⚠️', 'Could not redeem', R[r?.reason] || error?.message || r?.reason || 'unknown'); if (btn) { btn.disabled = false; btn.textContent = 'Redeem now'; } return;
+  }
+  vibrate([80, 40, 80, 40, 160]);
+  const at = new Date(r.at);
+  $('sheet-root').innerHTML = `<div class="sheet-bg" style="background:#052e16"><div class="sheet tall" style="background:#16a34a;color:#fff;text-align:center;padding-top:40px">
+    <div style="font-size:84px;line-height:1">✓</div>
+    <h2 style="color:#fff;font-size:30px;margin:10px 0 4px;justify-content:center">Redeemed</h2>
+    <div style="font-size:26px;font-weight:800;margin:10px 0">${esc(r.reward)}</div>
+    <div style="font-size:18px;opacity:.9">${esc(r.business)}</div>
+    <div style="font-size:22px;font-weight:800;margin-top:10px">${r.points} pts${r.pickups ? ` · ${r.pickups} pickup${r.pickups === 1 ? '' : 's'} x ${r.pts_each} pts` : ''}</div>
+    <div style="font-size:15px;opacity:.9;margin-top:4px">${at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</div>
+    ${r.funded ? '<div style="margin-top:10px;background:rgba(255,255,255,.18);border-radius:10px;padding:8px 12px;font-weight:700">🔥 This one is on ChainLane</div>' : ''}
+    <div id="counter-left" style="margin-top:22px;font-size:14px;opacity:.85">Show this screen to the staff · closes in 2:00</div>
+    <button class="btn" style="margin-top:18px;background:#fff;color:#14532d" onclick="clearInterval(counterTimer);closeSheet();loadBalances();setTimeout(() => sheetHowWasIt('${r.business_id || ''}'), 300)">Done</button></div></div>`;
+  let left = 120; clearInterval(counterTimer);
+  counterTimer = setInterval(() => { left--; const el = $('counter-left'); if (!el) { clearInterval(counterTimer); return; } el.textContent = `Show this screen to the staff · closes in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`; if (left <= 0) { clearInterval(counterTimer); closeSheet(); loadBalances(); } }, 1000);
+  loadBalances();
+}
 function sheetHowWasIt(bid) {
   const bz = bizInfo[bid] || {};
   sheet('How was it?', bz.business_name || '', `
-    <p style="font-size:14px;color:var(--muted);margin-bottom:6px">You just redeemed a reward at ${esc(bz.business_name || 'this business')}. Two quick things that help them a lot:</p>
+    <p style="font-size:14px;color:var(--muted);margin-bottom:6px">You just redeemed a reward${bz.business_name ? ' at ' + esc(bz.business_name) : ''}. Rate them in Chains - it helps the next driver.</p>
     <button class="btn btn-primary" onclick="sheetRate('${bid}')">Rate them in ChainLane</button>
-    ${bz.google_review_url ? `<a class="btn btn-ghost" style="display:block;text-align:center;text-decoration:none;margin-top:10px" href="${esc(bz.google_review_url)}" target="_blank" rel="noopener">⭐ Leave a Google review</a>` : ''}
-    <button class="btn btn-ghost" style="margin-top:10px" onclick="shareMoment('redeemed','${bid}')">📤 Share this moment</button>
     <button class="btn btn-ghost" style="margin-top:10px" onclick="closeSheet()">Not now</button>`);
 }
 let rateVal = 0;
@@ -1464,6 +1508,7 @@ function sheetToken(n) {
     </div>
     <div class="reward-box"><p style="margin:0;color:var(--text)">${status}</p></div>
     ${!isSubscribed() && !WAITLIST ? `<button class="btn btn-primary" onclick="openStripe()">Subscribe — $10/mo</button>` : ''}
+    ${bz.cl_buys_first ? '<div style="margin-top:10px;padding:10px 12px;border-radius:12px;background:rgba(0,212,255,.12);color:var(--accent);font-weight:700">🔥 ChainLane is buying the first reward here - be the first to redeem</div>' : ''}
     <button class="btn btn-primary" style="margin-top:10px" onclick="startNav('${n.id}')">🧭 Navigate here</button>
     <button class="btn btn-ghost" style="margin-top:10px" onclick="askDetour('${n.id}')">↪ Grab it on my way to…</button>
     <button class="btn btn-ghost" style="margin-top:10px" onclick="shareBiz('${n.campaigns?.business_id}')">📤 Share</button>
@@ -1619,7 +1664,8 @@ async function sheetRewards() {
   const pending = (reds || []).filter(r => r.status === 'pending');
   const used = (reds || []).filter(r => r.status !== 'pending');
   const total = (bals || []).reduce((s, b) => s + b.balance, 0);
-  let html = `<div class="stat-grid"><div class="stat"><b>${total}</b><span>points available</span></div><div class="stat"><b>${pending.length}</b><span>QR codes waiting to be scanned</span></div></div>`;
+  let html = `<div class="stat-grid"><div class="stat"><b>${total}</b><span>points available</span></div><div class="stat"><b>${pending.length}</b><span>QR codes waiting to be scanned</span></div></div>
+    <div class="reward-box" style="border-color:var(--accent)"><h3>At the counter: scan the ChainLane sticker</h3><p>When you have enough points, use your phone camera on the sticker at the register. Your screen turns green - show it to the staff. No app scanning needed.</p></div>`;
   if (pending.length) {
     html += `<h3 style="font-size:14px;margin:6px 0 8px">Show this at the counter</h3>` + pending.map(r => {
       const rw = (rewards || []).find(x => x.id === r.reward_id) || defaultReward;
@@ -1670,6 +1716,18 @@ async function sheetHistory() {
     </div>`).join('');
 }
 
+const INTERESTS = ['Food & Dining', 'Coffee & Bakery', 'Drinks & Nightlife', 'Gym & Fitness', 'Beauty & Salon', 'Car Care', 'Health & Dental', 'Pets', 'Groceries', 'Shopping', 'Entertainment & Events', 'Kids & Family', 'Home Services'];
+function editInterests() {
+  const cur = new Set(profile?.interests || []);
+  sheet('My interests', 'What would you like for free? Businesses offering these show up first for you.', `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">${INTERESTS.map(c => `<button type="button" class="chip ${cur.has(c) ? 'on' : ''}" data-i="${c}" onclick="this.classList.toggle('on')">${c}</button>`).join('')}</div>
+    <button class="btn btn-primary" onclick="saveInterests()">Save</button>`);
+}
+async function saveInterests() {
+  const interests = [...document.querySelectorAll('#sheet-body .chip.on')].map(b => b.dataset.i);
+  const { error } = await sb.from('users').update({ interests }).eq('id', session.user.id);
+  if (error) return toast('err', '⚠️', 'Could not save', error.message);
+  profile.interests = interests; toast('ok', '✓', 'Saved', interests.length ? interests.join(', ') : 'No interests picked'); sheetProfile();
+}
 function sheetProfile() {
   const subbed = isSubscribed();
   sheet(profile?.full_name || 'Profile', profile?.email || session.user.email, `
@@ -1678,6 +1736,7 @@ function sheetProfile() {
       <div class="stat"><b style="color:${subbed ? 'var(--success)' : 'var(--muted)'}">${subbed ? 'Active' : 'None'}</b><span>subscription</span></div>
     </div>
     <div class="row"><span>Zip code</span><span>${esc(profile?.zip_code || '—')}</span></div>
+    <div class="row" style="align-items:flex-start"><span>My interests</span><span style="text-align:right">${(profile?.interests || []).length ? esc(profile.interests.join(', ')) : '<span style="color:var(--muted)">none yet</span>'} <a href="#" onclick="editInterests();return false;">edit</a></span></div>
     <div class="row"><span>Member since</span><span>${fmtDate(profile?.created_at)}</span></div>
     <div class="row"><span>Device</span><span style="font-size:11px;color:var(--muted)">${deviceId.slice(0, 8)}</span></div>
     ${subbed ? '' : `<button class="btn btn-primary" style="margin-top:14px" onclick="openStripe()">Subscribe — $10/mo</button>`}
