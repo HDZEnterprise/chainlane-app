@@ -365,7 +365,8 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v58';
+const BUILD = 'v59';
+setInterval(() => { if (typeof drawMarkers === 'function' && Object.keys(markers || {}).length) drawMarkers(); }, 60000);
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
 const PUBLIC_BASE = 'https://mychainlane.com/b/?s=';
@@ -412,6 +413,28 @@ let nodes = [];
 let watchId = null, wakeLock = null, lastPos = null;
 let localCooldown = {};          // nodeId -> timestamp when it frees up
 let balances = [], rewardsList = [], focusBiz = null, bizInfo = {};
+let bizCooldown = {};   // business_id -> until (ms). Seven-day rule: after a reward's worth of pickups at a business, wait before collecting there again.
+function bizCool(bid) { return bid && (bizCooldown[bid] || 0) > Date.now(); }
+function daysLeft(ms) { return Math.max(1, Math.ceil((ms - Date.now()) / 86400000)); }
+/* token hours: {"days":[0..6],"start":"HH:MM","end":"HH:MM"} in Houston time, null = always on */
+function hoursOpen(h, at = new Date()) {
+  if (!h) return true;
+  const loc = new Date(at.toLocaleString('en-US', { timeZone: 'America/Chicago' }));
+  const days = Array.isArray(h.days) ? h.days : [0,1,2,3,4,5,6];
+  if (!days.includes(loc.getDay())) return false;
+  if (!h.start || !h.end) return true;
+  const t = loc.getHours() * 60 + loc.getMinutes(), [sh, sm] = h.start.split(':').map(Number), [eh, em] = h.end.split(':').map(Number);
+  const st = sh * 60 + sm, en = eh * 60 + em;
+  return st <= en ? (t >= st && t < en) : (t >= st || t < en);
+}
+function hoursText(h) {
+  if (!h) return '';
+  const D = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], days = Array.isArray(h.days) ? h.days : [0,1,2,3,4,5,6];
+  const dd = days.length === 7 ? 'Every day' : days.map(d => D[d]).join(', ');
+  const f = t => { if (!t) return ''; const [hh, mm] = t.split(':').map(Number); return `${((hh + 11) % 12) + 1}${mm ? ':' + String(mm).padStart(2, '0') : ''} ${hh < 12 ? 'AM' : 'PM'}`; };
+  return h.start && h.end ? `${dd} ${f(h.start)} - ${f(h.end)}` : dd;
+}
+function nodeOpen(n) { const bz = bizInfo[n.campaigns?.business_id]; return !bz || hoursOpen(bz.token_hours); }
 async function loadBizInfo(id) { const { data } = await sb.from('business_public').select('*').eq('id', id).maybeSingle(); bizInfo[id] = data || {}; if (data?.logo_url && typeof drawMarkers === 'function' && Object.keys(markers).length) drawMarkers(); }
 let WORLD = false;   // set from the account: showcase accounts live in the sample token set   // per-business points; focusBiz = business the top bar is showing
 let inFlight = new Set();        // nodes currently being collected
@@ -544,6 +567,7 @@ async function loadBalances() {
     sb.from('rewards').select('business_id,reward_name,reward_cost_points').eq('is_active', true)
   ]);
   balances = b || []; rewardsList = r || [];
+  if (!WORLD) Promise.resolve(sb.from('pickup_cooldowns').select('business_id,until').eq('user_id', uid)).then(({ data }) => { bizCooldown = {}; (data || []).forEach(c => bizCooldown[c.business_id] = new Date(c.until).getTime()); if (typeof drawMarkers === 'function' && Object.keys(markers).length) drawMarkers(); }).catch(() => {});
   redeemReminders(); loadRedeemed();
   renderPoints();
 }
@@ -627,6 +651,9 @@ function drawMarkers() {
       if (isAd(n)) el.classList.add('ad');
       el.addEventListener('click', () => openSheet('token', n));
       markers[n.id] = new mapboxgl.Marker({ element: el }).setLngLat([n.lng, n.lat]).addTo(map);
+    }
+    { const el = markers[n.id].getElement(); const off = !isAd(n) && (!nodeOpen(n) || bizCool(n.campaigns?.business_id)); el.style.opacity = off ? '.35' : ''; el.style.filter = off ? 'grayscale(.6)' : ''; }
+    if (false) {
     }
     markers[n.id].getElement().classList.toggle('cool', realCooldown(n.id));
     if (isAd(n)) { const lg = bizInfo[n.campaigns?.business_id]?.logo_url, el = markers[n.id].getElement(); if (lg && !el.classList.contains('logo')) { el.style.backgroundImage = `url("${lg}")`; el.classList.add('logo'); } }
@@ -734,6 +761,7 @@ function setCooldown(id, ms = COOLDOWN_MS) { localCooldown[id] = Date.now() + ms
 
 async function tryCollect(n, lat, lng, accuracy) {
   if (!isSubscribed()) return;              // server would reject anyway; skip the round trip
+  if (!isAd(n) && (!nodeOpen(n) || bizCool(n.campaigns?.business_id))) return;   // off-hours or seven-day rule: no round trip
   inFlight.add(n.id);
   try {
     const { data, error } = await sb.rpc('collect_token', { p_node_id: n.id, p_lat: lat, p_lng: lng, p_accuracy: accuracy, p_device_id: deviceId });
@@ -749,10 +777,13 @@ async function tryCollect(n, lat, lng, accuracy) {
       drawMarkers();
       vibrate([60, 40, 60]);
       showArrive(n, data.points);
+      if (data.cooldown_until) { bizCooldown[n.campaigns?.business_id] = new Date(data.cooldown_until).getTime(); setTimeout(() => { drawMarkers(); toast('info', '📅', 'Reward earned here', `Go redeem it. This business opens up for you again in ${data.cooldown_days || 7} days.`); }, 4000); }
       { const bid = n.campaigns?.business_id, bb = balances.find(x => x.business_id === bid), rw = rewardFor(bid); if (bb && bb.balance + data.points >= rw.reward_cost_points && bb.balance < rw.reward_cost_points) setTimeout(() => offerMoment('ready', bid), 9500); }
     } else {
       const r = data?.reason || 'unknown';
       if (r === 'not_navigating') { setCooldown(n.id, 120_000); toast('info', '🧭', 'Navigate to collect', 'Tap the token and Navigate - pickups only count on purpose.'); }
+      else if (r === 'biz_cooldown') { const until = new Date(data.until).getTime(); bizCooldown[data.business_id || n.campaigns?.business_id] = until; drawMarkers(); toast('info', '📅', `Come back in ${daysLeft(until)} day${daysLeft(until) === 1 ? '' : 's'}`, `You already earned a reward's worth here. ${esc(n.campaigns?.business_name || 'This business')} opens up for you again then.`); if (nav && nav.node?.id === n.id) stopNav(); }
+      else if (r === 'closed') { toast('info', '🕒', 'Token is off right now', `${esc(n.campaigns?.business_name || 'This business')} runs its token ${hoursText(data.hours) || 'at set times'}.`); setCooldown(n.id, 600_000); }
       else if (r === 'cooldown') setCooldown(n.id);
       else if (r === 'node_empty' || r === 'node_inactive') { nodes = nodes.filter(x => x.id !== n.id); drawMarkers(); }
       else if (r === 'not_subscribed') { profile.subscription_status = 'inactive'; renderPoints(); }
@@ -1477,7 +1508,10 @@ function sheetToken(n) {
   const c = COLORS[n.token_type] || '#00D4FF';
   const d = lastPos ? Math.round(distM(lastPos.lat, lastPos.lng, n.lat, n.lng)) : null;
   const cool = realCooldown(n.id);
-  const status = cool ? `⏳ Collected — available again in ${Math.ceil((localCooldown[n.id]-Date.now())/3600000)} h`
+  const bidc = n.campaigns?.business_id;
+  const status = bizCool(bidc) ? `📅 You earned a reward's worth here - collect again in ${daysLeft(bizCooldown[bidc])} day${daysLeft(bizCooldown[bidc]) === 1 ? '' : 's'}`
+               : !nodeOpen(n) ? `🕒 Token is off right now - on ${hoursText((bizInfo[bidc] || {}).token_hours)}`
+               : cool ? `⏳ Collected — available again in ${Math.ceil((localCooldown[n.id]-Date.now())/3600000)} h`
                : !isSubscribed() ? (WAITLIST ? '⏳ Collecting turns on when you come off the waitlist' : '🔒 Subscribe to collect this token')
                : d == null ? '📍 Waiting for your location…'
                : d <= COLLECT_RADIUS_M ? '✅ You are here — collecting…'
@@ -1497,6 +1531,7 @@ function sheetToken(n) {
     ${bz.offer_title ? `<div class="reward-box" style="border-color:rgba(234,179,8,.45);background:rgba(234,179,8,.08)"><h3 style="color:var(--gold)">🎁 ${esc(bz.offer_title)}</h3><p style="margin:0">Earn ${rwb.reward_cost_points} pts here to unlock</p></div>` : ''}
     ${bz.description ? `<p style="font-size:14px;line-height:1.5;color:var(--text);margin:0 0 12px">${esc(bz.description)}</p>` : ''}
     ${bz.hours ? `<div class="row"><span style="color:var(--muted)">Hours</span><span>${esc(bz.hours)}</span></div>` : ''}
+    ${bz.token_hours ? `<div class="row"><span style="color:var(--muted)">Token on</span><span>${esc(hoursText(bz.token_hours))}</span></div>` : ''}
     ${tel ? `<div class="row"><span style="color:var(--muted)">Phone</span><a href="tel:${tel}" style="color:var(--accent);text-decoration:none">${esc(bz.business_phone)}</a></div>` : ''}
     ${site ? `<div class="row"><span style="color:var(--muted)">Website</span><a href="${esc(site)}" target="_blank" style="color:var(--accent);text-decoration:none">${esc(site.replace(/^https?:\/\//, ''))}</a></div>` : ''}
     ${socialRow(bz, n)}
