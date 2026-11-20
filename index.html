@@ -365,7 +365,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v60';
+const BUILD = 'v62';
 setInterval(() => { if (typeof drawMarkers === 'function' && Object.keys(markers || {}).length) drawMarkers(); }, 60000);
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
@@ -468,7 +468,15 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
   if (session) { try { await enterApp(); } catch (e) { if (e.message !== 'business login') throw e; } } else showAuth();
 })();
 
-function showAuth() { $('auth').classList.remove('hidden'); $('app').classList.add('hidden'); stopTracking(); if (/[?&](signup|join|waitlist)\b/.test(location.search)) authTab('up'); }
+let GATE = 'open';
+async function loadGate() { try { const { data } = await sb.from('app_settings').select('value').eq('key', 'driver_gate').maybeSingle(); GATE = (data && String(data.value).replace(/"/g, '')) || 'open'; } catch (e) {} return GATE; }
+function showAuth() {
+  $('auth').classList.remove('hidden'); $('app').classList.add('hidden'); stopTracking();
+  const fromWaitlist = /[?&](signup|join|waitlist)\b/.test(location.search);
+  if (fromWaitlist) authTab('up');
+  // Waitlist mode: the app's own login page has no sign-up. Joining happens only through the website's waitlist link (?join).
+  loadGate().then(g => { const hide = g === 'waitlist' && !fromWaitlist; $('tab-up').style.display = hide ? 'none' : ''; $('tab-in').style.display = (g === 'waitlist' && fromWaitlist) ? 'none' : ''; if (hide) authTab('in'); });
+}
 function authTab(t) {
   $('tab-in').classList.toggle('active', t === 'in'); $('tab-up').classList.toggle('active', t === 'up');
   $('form-in').classList.toggle('hidden', t !== 'in'); $('form-up').classList.toggle('hidden', t !== 'up');
@@ -527,6 +535,13 @@ async function signOut() { closeSheet(); await sb.auth.signOut(); showAuth(); }
 async function enterApp() {
   $('auth').classList.add('hidden'); $('app').classList.remove('hidden');
   await loadProfile();
+  // Waitlist gate: until the admin opens the app, a signed-in driver only sees the "you're on the list" page.
+  // Let through: showcase accounts, admins, and drivers the admin activated.
+  try {
+    const gate = await loadGate();
+    const letIn = WORLD || (profile && (profile.role === 'admin' || profile.can_demo || profile.demo_only)) || isSubscribed();
+    if (gate === 'waitlist' && !letIn) { showWelcome(profile?.full_name || '', true); return; }
+  } catch (e) {}
   if (!map) initMap();
   await Promise.all([loadSettings(), loadCooldowns()]);
   await loadNodes();
@@ -1325,16 +1340,16 @@ function setPassenger() {
 
 /* ---------------- Terms of use gate ---------------- */
 /* waitlist welcome page (shown once, right after sign-up) */
-function showWelcome(name) {
+function showWelcome(name, returning) {
   $('auth').classList.add('hidden'); $('app').classList.add('hidden');
   const old = $('welcome-root'); if (old) old.remove();
   const el = document.createElement('div'); el.id = 'welcome-root'; el.className = 'tos-bg';
   el.innerHTML = `<div style="max-width:520px;margin:0 auto;text-align:center;padding-top:40px">
     <img src="/img/logo-full-dark.png" alt="ChainLane" style="width:220px;max-width:70%;height:auto;margin:0 auto 24px;display:block">
     <div style="font-size:44px;margin-bottom:8px">🎉</div>
-    <h1 style="margin:0 0 14px">You're on the list${name ? ', ' + esc(name.split(' ')[0]) : ''}!</h1>
-    <p style="font-size:16px;line-height:1.55;color:#d6dbe6;margin:0 0 14px">Thanks for joining the ChainLane driver waitlist. We'll email you the moment ChainLane goes live in your area.</p>
-    <p style="font-size:16px;line-height:1.55;color:#d6dbe6;margin:0 0 14px">As an early member you get <b style="color:#fff">unlimited token pickups, free, through the end of 2027</b> — no subscription.</p>
+    <h1 style="margin:0 0 14px">${returning ? "You're still on the list" : "You're on the list"}${name ? ', ' + esc(name.split(' ')[0]) : ''}!</h1>
+    <p style="font-size:16px;line-height:1.55;color:#d6dbe6;margin:0 0 14px">${returning ? 'ChainLane is not open to drivers yet. Your spot is saved - we will email you the moment the map opens.' : "Thanks for joining the ChainLane driver waitlist. We'll email you the moment ChainLane goes live in your area."}</p>
+    <p style="font-size:16px;line-height:1.55;color:#d6dbe6;margin:0 0 14px">Public launch is <b style="color:#fff">January 31, 2027</b>. Collecting is free until then.</p>
     <p style="font-size:16px;line-height:1.55;color:#d6dbe6;margin:0 0 28px">Thanks again for being part of this. Get ready to earn free stuff and discounts from your favorite local businesses — just by driving.</p>
     <button class="btn btn-primary" onclick="closeWelcome()">Got it</button>
     <p class="fine" style="margin-top:14px">Nothing else to do for now. We'll be in touch — this takes you back to mychainlane.com.</p>
