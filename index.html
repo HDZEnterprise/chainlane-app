@@ -366,7 +366,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v71';
+const BUILD = 'v72';
 setInterval(() => { if (typeof drawMarkers === 'function' && Object.keys(markers || {}).length) drawMarkers(); }, 60000);
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
@@ -1136,10 +1136,25 @@ function pickVoice() {
       if (/male|david|mark|daniel|james|guy/.test(n) && !/female/.test(n)) s -= 40;
       if (!v.localService) s += 5;
       return s; };
-    navVoice = vs.sort((a, b) => score(b) - score(a))[0] || null;
+    const saved = localStorage.getItem('cl_voice_name'), keep = saved && vs.find(v => v.name === saved);
+    navVoice = keep || vs.sort((a, b) => score(b) - score(a))[0] || null;
   } catch (e) {}
 }
 if ('speechSynthesis' in window) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
+/* let the driver choose: list every English voice on this phone, test it, keep the one they like */
+function pickVoiceUI() {
+  const vs = speechSynthesis.getVoices().filter(v => /^en/i.test(v.lang));
+  if (!vs.length) return toast('err', '🔈', 'No voices found', 'Install Google Speech Services on your phone, then try again.');
+  const saved = localStorage.getItem('cl_voice_name');
+  sheet('Navigation voice', 'Tap Test to hear it. The voices come from your phone: install "Google Speech Services" and download US English voices in Settings > Text-to-speech for the best ones.', vs.map((v, i) => `
+    <div class="near-row"><div class="near-main"><div class="near-name">${v.name === (navVoice && navVoice.name) ? '✓ ' : ''}${esc(v.name)}</div><div class="near-sub">${esc(v.lang)}${v.localService ? '' : ' · online'}</div></div>
+      <button class="btn btn-ghost" style="width:auto;padding:6px 10px" onclick="testVoice(${i})">▶ Test</button>
+      <button class="btn btn-primary" style="width:auto;padding:6px 10px;margin-left:6px" onclick="useVoice(${i})">Use</button></div>`).join(''));
+  document.querySelector('.sheet').classList.add('tall');
+}
+function voiceAt(i) { return speechSynthesis.getVoices().filter(v => /^en/i.test(v.lang))[i]; }
+function testVoice(i) { const v = voiceAt(i); if (!v) return; try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance('In 500 feet, turn right onto Westheimer Road. Token on the way.'); u.voice = v; u.lang = v.lang; u.rate = 0.98; u.pitch = 1.05; speechSynthesis.speak(u); } catch (e) {} }
+function useVoice(i) { const v = voiceAt(i); if (!v) return; navVoice = v; localStorage.setItem('cl_voice_name', v.name); toast('ok', '🔊', 'Voice set', v.name); closeSheet(); sheetProfile(); }
 function say(text) {
   if (!voiceOn || !('speechSynthesis' in window)) return;
   try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); if (!navVoice) pickVoice(); if (navVoice) u.voice = navVoice; u.rate = 0.98; u.pitch = 1.05; u.lang = navVoice?.lang || 'en-US'; speechSynthesis.speak(u); } catch (e) {}
@@ -1976,6 +1991,7 @@ function sheetProfile() {
       <div class="stat"><b style="color:${subbed ? 'var(--success)' : 'var(--muted)'}">${subbed ? 'Active' : 'None'}</b><span>subscription</span></div>
     </div>
     <div class="row"><span>Zip code</span><span>${esc(profile?.zip_code || '—')}</span></div>
+    <div class="row" style="align-items:flex-start"><span>Navigation voice</span><span style="text-align:right"><a href="#" onclick="pickVoiceUI();return false;">${esc((navVoice && navVoice.name) || 'default')}</a></span></div>
     <div class="row" style="align-items:flex-start"><span>My interests</span><span style="text-align:right">${(profile?.interests || []).length ? esc(profile.interests.join(', ')) : '<span style="color:var(--muted)">none yet</span>'} <a href="#" onclick="editInterests();return false;">edit</a></span></div>
     <div class="row"><span>Member since</span><span>${fmtDate(profile?.created_at)}</span></div>
     <div class="row"><span>Device</span><span style="font-size:11px;color:var(--muted)">${deviceId.slice(0, 8)}</span></div>
