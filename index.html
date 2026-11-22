@@ -366,7 +366,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v65';
+const BUILD = 'v66';
 setInterval(() => { if (typeof drawMarkers === 'function' && Object.keys(markers || {}).length) drawMarkers(); }, 60000);
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
@@ -1594,18 +1594,22 @@ function searchTerms(q) {
   return [...terms];
 }
 /* Go box: live suggestions as you type (Mapbox Search Box: brands and places like "HEB", addresses), tap to go */
-let findTimer = null, findSession = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random())), findSugs = [];
+let findTimer = null, findSession = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random())), findSugs = [], PLACES = [], placesAt = 0;
+async function loadPlaces() { if (Date.now() - placesAt < 5 * 60000) return; try { const { data } = await sb.from('places').select('id,name,address,lat,lng').order('uses', { ascending: false }).limit(2000); PLACES = data || []; placesAt = Date.now(); } catch (e) {} }
+function cleanQ(q) { return q.replace(/\b(in|near)?\s*(houston|htx|tx|texas)\b/gi, '').replace(/\s+/g, ' ').trim(); }
+function placeMatches(q) { const t = cleanQ(q).toLowerCase(); if (t.length < 2) return []; return PLACES.filter(p => p.name.toLowerCase().includes(t) || (p.address || '').toLowerCase().includes(t)).slice(0, 4).map(p => ({ community: true, name: p.name, full_address: p.address || '', lat: p.lat, lng: p.lng, distance: lastPos ? distM(lastPos.lat, lastPos.lng, p.lat, p.lng) : 0 })); }
 function findSuggest() {
   const q = $('find-q').value.trim(); clearTimeout(findTimer);
   if (q.length < 2) { hideSug(); return; }
   findTimer = setTimeout(async () => {
     try {
+      loadPlaces();
       const prox = lastPos ? `${lastPos.lng},${lastPos.lat}` : '-95.3698,29.7604';
-      const r = await fetch(`https://api.mapbox.com/search/searchbox/v1/suggest?q=${encodeURIComponent(q)}&access_token=${MAPBOX_TOKEN}&session_token=${findSession}&proximity=${prox}&country=us&limit=8&types=poi,address,place,neighborhood,street&language=en`);
-      const j = await r.json(); findSugs = j.suggestions || [];
+      const r = await fetch(`https://api.mapbox.com/search/searchbox/v1/suggest?q=${encodeURIComponent(cleanQ(q) || q)}&access_token=${MAPBOX_TOKEN}&session_token=${findSession}&proximity=${prox}&country=us&limit=7&types=poi,address,place,neighborhood,street&language=en`);
+      const j = await r.json(); findSugs = placeMatches(q).concat(j.suggestions || []);
       if ($('find-q').value.trim() !== q) return;
-      if (!findSugs.length) { hideSug(); return; }
-      $('find-sug').innerHTML = findSugs.map((x, i) => `<div class="near-row" style="padding:10px 12px" onclick="pickSug(${i})"><div class="near-main"><div class="near-name">📍 ${esc(x.name)}</div><div class="near-sub">${esc(x.full_address || x.place_formatted || '')}</div></div><div class="near-dist">${x.distance ? fmtDist(x.distance) : ''}</div></div>`).join('');
+      $('find-sug').innerHTML = findSugs.map((x, i) => `<div class="near-row" style="padding:10px 12px" onclick="pickSug(${i})"><div class="near-main"><div class="near-name">${x.community ? '⭐' : '📍'} ${esc(x.name)}</div><div class="near-sub">${esc(x.full_address || x.place_formatted || '')}${x.community ? ' · added by a driver' : ''}</div></div><div class="near-dist">${x.distance ? fmtDist(x.distance) : ''}</div></div>`).join('')
+        + `<div class="near-row" style="padding:10px 12px;color:var(--accent)" onclick="addPlaceStart()"><div class="near-main"><div class="near-name">➕ Can't find it? Add "${esc(q)}"</div><div class="near-sub">Pick the address and we save it for every driver</div></div></div>`;
       $('find-sug').style.display = '';
     } catch (e) { hideSug(); }
   }, 220);
@@ -1614,6 +1618,7 @@ function hideSug() { const el = $('find-sug'); if (el) { el.style.display = 'non
 async function pickSug(i) {
   const x = findSugs[i]; if (!x) return;
   hideSug(); $('find-q').value = ''; $('find-q').blur();
+  if (x.community) { pickDest({ lat: x.lat, lng: x.lng, name: [x.name, x.full_address].filter(Boolean).join(', ') }); return; }
   try {
     const r = await fetch(`https://api.mapbox.com/search/searchbox/v1/retrieve/${encodeURIComponent(x.mapbox_id)}?access_token=${MAPBOX_TOKEN}&session_token=${findSession}`);
     const j = await r.json(); const f = j.features?.[0]; if (!f) throw new Error('no feature');
@@ -1621,6 +1626,46 @@ async function pickSug(i) {
     findSession = crypto.randomUUID ? crypto.randomUUID() : String(Math.random());
     pickDest({ lat, lng, name: [f.properties.name, f.properties.full_address || f.properties.place_formatted].filter(Boolean).join(', ') });
   } catch (e) { openFind(x.name); }
+}
+/* "Can't find it? Add it": name + address -> saved for everyone */
+let addSugs = [], addTimer = null;
+function addPlaceStart() {
+  const q = $('find-q').value.trim(); hideSug(); $('find-q').blur();
+  sheet('Add a place', 'Not on the map yet? Give us the name and the address. It shows up for every driver from now on.', `
+    <input class="hsearch" id="ap-name" placeholder="Place name" value="${esc(cleanQ(q))}" />
+    <input class="hsearch" id="ap-addr" placeholder="Street address (start typing)" autocomplete="off" oninput="addPlaceSuggest()" />
+    <div id="ap-list"></div>
+    <div class="small" id="ap-picked" style="margin:8px 0;color:var(--muted)">No address picked yet</div>
+    <button class="btn btn-primary" id="ap-save" style="width:100%" disabled onclick="addPlaceSave()">Save place</button>`);
+  setTimeout(() => $('ap-addr')?.focus(), 100);
+}
+let addPicked = null;
+function addPlaceSuggest() {
+  const q = $('ap-addr').value.trim(); clearTimeout(addTimer); if (q.length < 3) { $('ap-list').innerHTML = ''; return; }
+  addTimer = setTimeout(async () => {
+    try {
+      const prox = lastPos ? `${lastPos.lng},${lastPos.lat}` : '-95.3698,29.7604';
+      const r = await fetch(`https://api.mapbox.com/search/searchbox/v1/suggest?q=${encodeURIComponent(q)}&access_token=${MAPBOX_TOKEN}&session_token=${findSession}&proximity=${prox}&country=us&limit=6&types=address,street,poi&language=en`);
+      const j = await r.json(); addSugs = j.suggestions || [];
+      $('ap-list').innerHTML = addSugs.map((x, i) => `<div class="near-row" onclick="addPlacePick(${i})"><div class="near-main"><div class="near-name">${esc(x.name)}</div><div class="near-sub">${esc(x.full_address || x.place_formatted || '')}</div></div></div>`).join('') || '<div class="empty">No matches</div>';
+    } catch (e) { $('ap-list').innerHTML = '<div class="empty">Search unavailable</div>'; }
+  }, 220);
+}
+async function addPlacePick(i) {
+  const x = addSugs[i]; if (!x) return;
+  try {
+    const r = await fetch(`https://api.mapbox.com/search/searchbox/v1/retrieve/${encodeURIComponent(x.mapbox_id)}?access_token=${MAPBOX_TOKEN}&session_token=${findSession}`);
+    const f = (await r.json()).features?.[0]; if (!f) return;
+    addPicked = { lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], address: f.properties.full_address || f.properties.place_formatted || x.name };
+    $('ap-addr').value = addPicked.address; $('ap-list').innerHTML = ''; $('ap-picked').textContent = '✓ ' + addPicked.address; $('ap-save').disabled = false;
+  } catch (e) {}
+}
+async function addPlaceSave() {
+  const name = $('ap-name').value.trim(); if (!name || !addPicked) return;
+  const { data } = await sb.rpc('add_place', { p_name: name, p_address: addPicked.address, p_lat: addPicked.lat, p_lng: addPicked.lng });
+  if (!data?.ok) { toast('err', '⚠️', 'Could not save', data?.reason || ''); return; }
+  placesAt = 0; await loadPlaces(); toast('ok', '⭐', 'Saved', `${name} is on ChainLane search now.`);
+  pickDest({ lat: addPicked.lat, lng: addPicked.lng, name: `${name}, ${addPicked.address}` }); addPicked = null;
 }
 /* Go box: search real destinations like a maps app, plus ChainLane businesses that match */
 const CHIP_WORDS = ['food','coffee','drinks','gym','car','beauty','health','pets','shopping','services'];
@@ -1632,15 +1677,19 @@ async function openFind(q) {
   let places = [];
   try {
     const prox = lastPos ? `${lastPos.lng},${lastPos.lat}` : '-95.3698,29.7604';
-    const r = await fetch(`https://api.mapbox.com/search/searchbox/v1/forward?q=${encodeURIComponent(q)}&access_token=${MAPBOX_TOKEN}&proximity=${prox}&country=us&limit=8&types=poi,address,place,neighborhood,street&language=en`);
+    const r = await fetch(`https://api.mapbox.com/search/searchbox/v1/forward?q=${encodeURIComponent(cleanQ(q) || q)}&access_token=${MAPBOX_TOKEN}&proximity=${prox}&country=us&limit=8&types=poi,address,place,neighborhood,street&language=en`);
     const j = await r.json(); places = (j.features || []).map(f => ({ text: f.properties.name, place_name: [f.properties.name, f.properties.full_address || f.properties.place_formatted].filter(Boolean).join(', '), center: f.geometry.coordinates }));
   } catch (e) {}
   const mine = homeEntries().map(e => ({ ...e, bz: bizInfo[e.bid] || {} })).filter(e => !isAd(e.n)).filter(e => { const t = searchTerms(q); const hay = [e.n.campaigns?.business_name, e.bz.offer_title, e.bz.category, e.bz.category_other].join(' ').toLowerCase(); return t.some(x => hay.includes(x)); }).slice(0, 3);
   const prow = f => { const d = lastPos ? distM(lastPos.lat, lastPos.lng, f.center[1], f.center[0]) : null; const dest = { lat: f.center[1], lng: f.center[0], name: f.place_name };
     return `<div class="near-row" onclick='pickDest(${JSON.stringify(dest).replace(/'/g, "&#39;")})'><div class="near-main"><div class="near-name">📍 ${esc(f.text)}</div><div class="near-sub">${esc(f.place_name.replace(f.text + ', ', ''))}</div></div><div class="near-dist">${d != null ? fmtDist(d) : ''}</div></div>`; };
-  const body = (mine.length ? `<div class="small" style="margin:0 0 6px;color:var(--muted)">On ChainLane</div>` + mine.map(({ n, d }) => `<div class="near-row" onclick="closeSheet();openSheet('token', nodes.find(x => x.id === '${n.id}'))"><div class="near-main"><div class="near-name" style="color:${COLORS[n.token_type] || '#00D4FF'}">● ${esc(n.campaigns?.business_name || 'Business')}</div><div class="near-sub">+${n.point_value} pts · ${esc(rewardFor(n.campaigns?.business_id).reward_name || '')}</div></div><div class="near-dist">${d != null ? fmtDist(d) : ''}</div></div>`).join('') : '')
+  await loadPlaces(); const comm = placeMatches(q);
+  if (!places.length && !mine.length && !comm.length) Promise.resolve(sb.rpc('log_search_miss', { p_query: q, p_lat: lastPos?.lat ?? null, p_lng: lastPos?.lng ?? null })).catch(() => {});
+  const body = (comm.length ? `<div class="small" style="margin:0 0 6px;color:var(--muted)">Added by drivers</div>` + comm.map(x => `<div class="near-row" onclick='pickDest(${JSON.stringify({ lat: x.lat, lng: x.lng, name: [x.name, x.full_address].filter(Boolean).join(', ') }).replace(/'/g, "&#39;")})'><div class="near-main"><div class="near-name">⭐ ${esc(x.name)}</div><div class="near-sub">${esc(x.full_address)}</div></div><div class="near-dist">${x.distance ? fmtDist(x.distance) : ''}</div></div>`).join('') : '')
+    + (mine.length ? `<div class="small" style="margin:${comm.length ? '12px' : '0'} 0 6px;color:var(--muted)">On ChainLane</div>` + mine.map(({ n, d }) => `<div class="near-row" onclick="closeSheet();openSheet('token', nodes.find(x => x.id === '${n.id}'))"><div class="near-main"><div class="near-name" style="color:${COLORS[n.token_type] || '#00D4FF'}">● ${esc(n.campaigns?.business_name || 'Business')}</div><div class="near-sub">+${n.point_value} pts · ${esc(rewardFor(n.campaigns?.business_id).reward_name || '')}</div></div><div class="near-dist">${d != null ? fmtDist(d) : ''}</div></div>`).join('') : '')
     + (places.length ? `<div class="small" style="margin:${mine.length ? '12px' : '0'} 0 6px;color:var(--muted)">Places</div>` + places.map(prow).join('') : '')
-    + (!places.length && !mine.length ? `<div class="empty">Nothing found for "${esc(q)}".</div>` : '');
+    + (!places.length && !mine.length && !comm.length ? `<div class="empty">Nothing found for "${esc(q)}".</div>` : '')
+    + `<button class="btn btn-ghost" style="width:100%;margin-top:12px" onclick="$('find-q').value=${JSON.stringify(q)};addPlaceStart()">➕ Can't find it? Add it</button>`;
   sheet(`"${q}"`, '', body); document.querySelector('.sheet').classList.add('tall');
 }
 let pendingDest = null;
