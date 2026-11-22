@@ -366,7 +366,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v70';
+const BUILD = 'v71';
 setInterval(() => { if (typeof drawMarkers === 'function' && Object.keys(markers || {}).length) drawMarkers(); }, 60000);
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
@@ -1121,9 +1121,28 @@ function bearing(lat1, lon1, lat2, lon2) {
 }
 
 /* ---------------- Voice ---------------- */
+/* pick the most natural female English voice the phone has (Google / Samsung neural voices first; the default is the robotic one) */
+let navVoice = null;
+function pickVoice() {
+  try {
+    const vs = speechSynthesis.getVoices().filter(v => /^en[-_]?(US|GB|AU|CA)?/i.test(v.lang));
+    if (!vs.length) return;
+    const score = v => { const n = v.name.toLowerCase(); let s = 0;
+      if (/natural|neural|premium|enhanced|wavenet/.test(n)) s += 50;
+      if (/google us english|google.*english.*united states/.test(n)) s += 40;
+      if (/samantha|ava|zira|aria|jenny|joanna|salli|karen|moira|sara|female|woman/.test(n)) s += 30;
+      if (/samsung/.test(n) && /female|\bf\b|-f-|en-us-x-/.test(n)) s += 25;
+      if (/en-us/i.test(v.lang)) s += 10;
+      if (/male|david|mark|daniel|james|guy/.test(n) && !/female/.test(n)) s -= 40;
+      if (!v.localService) s += 5;
+      return s; };
+    navVoice = vs.sort((a, b) => score(b) - score(a))[0] || null;
+  } catch (e) {}
+}
+if ('speechSynthesis' in window) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
 function say(text) {
   if (!voiceOn || !('speechSynthesis' in window)) return;
-  try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.rate = 1.0; u.lang = 'en-US'; speechSynthesis.speak(u); } catch (e) {}
+  try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); if (!navVoice) pickVoice(); if (navVoice) u.voice = navVoice; u.rate = 0.98; u.pitch = 1.05; u.lang = navVoice?.lang || 'en-US'; speechSynthesis.speak(u); } catch (e) {}
 }
 function toggleVoice() {
   voiceOn = !voiceOn; localStorage.setItem('cl_voice', voiceOn ? 'on' : 'off');
