@@ -366,7 +366,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v64';
+const BUILD = 'v65';
 setInterval(() => { if (typeof drawMarkers === 'function' && Object.keys(markers || {}).length) drawMarkers(); }, 60000);
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
@@ -750,7 +750,7 @@ function onPos(pos) {
     const el = markers[n.id]?.getElement();
     if (el) el.classList.toggle('near', d <= 150);
     if (onCooldown(n.id) || inFlight.has(n.id)) return;
-    if (!nav || !nav.node || nav.node.id !== n.id) return;   // intentional pickups only: you must be navigating to THIS token
+    if (!nav || !(nav.nodes || []).some(x => x.id === n.id)) return;   // intentional pickups only: you must be navigating to THIS token
     if (d <= COLLECT_RADIUS_M) { tryCollect(n, lat, lng, accuracy); return; }
     // fast driving: did the path between the last two GPS fixes pass through the circle?
     if (prev && Date.now() - prev.t < 6000) {
@@ -839,11 +839,14 @@ let nav = null, navTimer = null, puck = null;
 const PUCK_SVG = `<svg viewBox="0 0 46 46"><circle cx="23" cy="23" r="21" fill="rgba(0,212,255,0.18)"/><path class="body" d="M23 5 L35 37 L23 30 L11 37 Z" fill="#00D4FF" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"/></svg>`;
 
 let destTimer = null, destMarker = null;
+let destLabel = null;
 function showDestMarker(dest) {
   if (destMarker) { destMarker.remove(); destMarker = null; }
+  if (destLabel) { destLabel.remove(); destLabel = null; }
   if (!dest) return;
-  const el = document.createElement('div'); el.style.position = 'relative'; el.innerHTML = `<div class="dest-pin">🏁</div><div class="dest-label">${esc(dest.name.split(',')[0])}</div>`;
-  destMarker = new mapboxgl.Marker({ element: el, anchor: 'bottom' }).setLngLat([dest.lng, dest.lat]).addTo(map);
+  destMarker = new mapboxgl.Marker({ color: '#EF4444', scale: 1.1 }).setLngLat([dest.lng, dest.lat]).addTo(map);   // pin tip sits on the exact point
+  const el = document.createElement('div'); el.className = 'dest-label'; el.style.position = 'static'; el.style.transform = 'none'; el.textContent = dest.name.split(',')[0];
+  destLabel = new mapboxgl.Marker({ element: el, anchor: 'left', offset: [16, -18] }).setLngLat([dest.lng, dest.lat]).addTo(map);
 }
 function askDetour(nodeId) {
   const n = nodes.find(x => x.id === nodeId); if (!n) return;
@@ -866,19 +869,26 @@ function destSuggest(nodeId) {
     } catch (e) { $('dest-list').innerHTML = '<div class="empty">Search unavailable</div>'; }
   }, 250);
 }
-async function startNav(nodeId, dest) {
-  const n = nodeId ? nodes.find(x => x.id === nodeId) : null; if (nodeId && !n) return;
-  if (!n && !dest) return;
+function startNav(nodeId, dest) { return startNavMulti(nodeId ? [nodeId] : [], dest); }
+/* Navigate to a destination, optionally through one or more tokens the driver ticked. Tokens are visited in road order. */
+async function startNavMulti(nodeIds, dest) {
+  let sel = (nodeIds || []).map(id => nodes.find(x => x.id === id)).filter(Boolean);
+  if (!sel.length && !dest) return;
+  if (dest && sel.length > 1 && lastPos) {   // order the stops along the line from me to the destination
+    const t = x => { const dx = dest.lng - lastPos.lng, dy = dest.lat - lastPos.lat, L = dx * dx + dy * dy || 1; return ((x.lng - lastPos.lng) * dx + (x.lat - lastPos.lat) * dy) / L; };
+    sel.sort((a, b) => t(a) - t(b));
+  }
+  const n = sel[0] || null;
   closeSheet();
   if (dest) { lastDest = dest; localStorage.setItem('cl_lastdest', JSON.stringify(dest)); }
   showDestMarker(dest || null);
-  nav = { node: n, dest: dest || null, mode: 'driving', routes: [], sel: 0, route: null, steps: [], stepIdx: 0, offCount: 0, spoken: {}, lastReroute: 0 };
-  if (n) Promise.resolve(sb.rpc('start_nav', { p_node_id: n.id })).catch(() => {});
+  nav = { node: n, nodes: sel, dest: dest || null, mode: 'driving', routes: [], sel: 0, route: null, steps: [], stepIdx: 0, offCount: 0, spoken: {}, lastReroute: 0 };
+  sel.forEach(x => Promise.resolve(sb.rpc('start_nav', { p_node_id: x.id })).catch(() => {}));
   if (n) setFocus(n.campaigns?.business_id, n.campaigns?.business_name);
   setNavModeLabel();
   $('navbar').classList.add('on'); $('turn').classList.add('on'); document.body.classList.add('navigating');
   if (nearOpen) toggleNear();
-  $('n-main').textContent = 'Getting route…'; $('n-sub').textContent = (nav.node ? (n.campaigns?.business_name || '') : '') + (dest ? ' → ' + dest.name.split(',')[0] : '');
+  $('n-main').textContent = 'Getting route…'; $('n-sub').textContent = sel.map(x => x.campaigns?.business_name || 'token').join(' → ') + (dest ? (sel.length ? ' → ' : '') + dest.name.split(',')[0] : '');
   $('t-ic').textContent = '🧭'; $('t-dist').textContent = ''; $('t-ins').textContent = 'Finding the best routes…'; $('t-then').textContent = '';
   if (!map.getSource('route')) {
     map.addSource('route', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -896,7 +906,7 @@ async function startNav(nodeId, dest) {
 function setNavModeLabel() { $('n-mode').textContent = nav?.mode === 'walking' ? '🚶 Walk' : '🚗 Drive'; }
 function toggleNavMode() { if (!nav) return; nav.mode = nav.mode === 'walking' ? 'driving' : 'walking'; setNavModeLabel(); fetchRoutes(true); }
 function stopNav() {
-  if (nav && nav.node) Promise.resolve(sb.rpc('end_nav', { p_node_id: nav.node.id })).catch(() => {});
+  if (nav) (nav.nodes || (nav.node ? [nav.node] : [])).forEach(x => Promise.resolve(sb.rpc('end_nav', { p_node_id: x.id })).catch(() => {}));
   nav = null; showDestMarker(null); if (navTimer) { clearInterval(navTimer); navTimer = null; }
   $('navbar').classList.remove('on'); $('turn').classList.remove('on'); document.body.classList.remove('navigating'); $('recenter').classList.remove('on'); navFreeUntil = 0;
   if (map.getSource('route')) { map.getSource('route').setData({ type: 'FeatureCollection', features: [] }); map.getSource('route-alt').setData({ type: 'FeatureCollection', features: [] }); map.getSource('route-lead').setData({ type: 'FeatureCollection', features: [] }); }
@@ -924,13 +934,13 @@ async function fetchRoutes(fit) {
   try {
     const profile = nav.mode === 'walking' ? 'walking' : 'driving-traffic';
     const ex = exitFor(lat, lng); nav.exit = ex;
-    const pts = [ex ? [ex.lng, ex.lat] : [lng, lat]]; if (n) pts.push([n.lng, n.lat]); if (nav.dest) pts.push([nav.dest.lng, nav.dest.lat]);
+    const pts = [ex ? [ex.lng, ex.lat] : [lng, lat]]; (nav.nodes || (n ? [n] : [])).forEach(x => pts.push([x.lng, x.lat])); if (nav.dest) pts.push([nav.dest.lng, nav.dest.lat]);
     const coords = pts.map(c => c.join(',')).join(';'), radii = pts.map((_, i) => i === 0 ? 120 : 60).join(';');
     const brg = (lastPos.heading != null && lastPos.speed > 2) ? `&bearings=${Math.round(lastPos.heading)},45;` : '';
     const base = `https://api.mapbox.com/directions/v5/mapbox/${profile}/`, tail = `&geometries=geojson&overview=full&steps=true&banner_instructions=true&voice_instructions=false&continue_straight=false${brg}&access_token=${MAPBOX_TOKEN}`;
     const url = `${base}${coords}?alternatives=${pts.length > 2 ? 'false' : 'true'}&radiuses=${radii}${tail}`;
     let r;
-    if (n && nav.dest) {
+    if (n && nav.dest && (nav.nodes || []).length <= 1) {
       // detour: also get the direct route; if it already passes within collecting range of the token, use it
       const directUrl = `${base}${pts[0].join(',')};${nav.dest.lng},${nav.dest.lat}?alternatives=false&radiuses=${radii.split(';')[0]};60${tail}`;
       const [via, direct] = await Promise.all([fetch(url).then(x => x.json()), fetch(directUrl).then(x => x.json())]);
@@ -1047,7 +1057,9 @@ function navTick() {
     if (d <= 300 && !nav.spoken.near) { nav.spoken.near = true; }
     const got = (onCooldown(n.id) && localCooldown[n.id] > Date.now() + 60*60*1000) || (isAd(n) && d < 40);
     if (got) {
-      if (nav.dest) { nav.node = null; toast('ok', '↪', 'Token done', `Continuing to ${nav.dest.name.split(',')[0]}`); say(`Continuing to your destination.`); $('n-sub').textContent = '→ ' + nav.dest.name.split(',')[0]; fetchRoutes(false); }
+      nav.nodes = (nav.nodes || []).filter(x => x.id !== n.id);
+      if (nav.nodes.length) { nav.node = nav.nodes[0]; nav.spoken.near = false; toast('ok', '↪', 'Token done', `Next: ${nav.node.campaigns?.business_name || 'token'}`); say('Token collected. Next token.'); setFocus(nav.node.campaigns?.business_id, nav.node.campaigns?.business_name); fetchRoutes(false); }
+      else if (nav.dest) { nav.node = null; toast('ok', '↪', 'Token done', `Continuing to ${nav.dest.name.split(',')[0]}`); say(`Continuing to your destination.`); $('n-sub').textContent = '→ ' + nav.dest.name.split(',')[0]; fetchRoutes(false); }
       else { toast('info', '🧭', 'Arrived', 'Token collected — navigation ended'); stopNav(); }
     }
   } else if (nav.dest && distM(lat, lng, nav.dest.lat, nav.dest.lng) < 40) { toast('ok', '🏁', 'You have arrived', nav.dest.name.split(',')[0]); say('You have arrived.'); stopNav(); }
@@ -1631,17 +1643,20 @@ async function openFind(q) {
     + (!places.length && !mine.length ? `<div class="empty">Nothing found for "${esc(q)}".</div>` : '');
   sheet(`"${q}"`, '', body); document.querySelector('.sheet').classList.add('tall');
 }
+let pendingDest = null;
 function pickDest(dest) {
-  // show the destination and the tokens you could collect on the way (within ~1.2 km of the straight line, then the router decides)
+  pendingDest = dest;
   const from = lastPos || { lat: 29.7604, lng: -95.3698 };
   const near = nodes.filter(n => !isAd(n) && n.is_active !== false && nodeOpen(n) && !bizCool(n.campaigns?.business_id)).map(n => ({ n, off: closestPointOnSegment(from.lat, from.lng, dest.lat, dest.lng, n.lat, n.lng).d, d: distM(from.lat, from.lng, n.lat, n.lng) }))
-    .filter(x => x.off < 1200 && x.d > 50).sort((a, b) => a.off - b.off).slice(0, 4);
-  const body = `<div class="row" style="margin-bottom:10px"><div><div style="font-weight:800;font-size:16px">📍 ${esc(dest.name.split(',')[0])}</div><div class="small">${esc(dest.name.split(',').slice(1).join(',').trim())}</div></div></div>
-    <button class="btn btn-primary" style="width:100%" onclick='startNav(null, ${JSON.stringify(dest).replace(/'/g, "&#39;")})'>🧭 Navigate there</button>
-    ${near.length ? `<div class="small" style="margin:14px 0 6px;color:var(--muted)">Tokens on your way - pick one and we route through it</div>` + near.map(({ n, off }) => `<div class="near-row" onclick='startNav("${n.id}", ${JSON.stringify(dest).replace(/'/g, "&#39;")})'><div class="near-main"><div class="near-name" style="color:${COLORS[n.token_type] || '#00D4FF'}">● ${esc(n.campaigns?.business_name || 'Business')} · +${n.point_value} pts</div><div class="near-sub">${esc(rewardFor(n.campaigns?.business_id).reward_name || '')} · about ${fmtDist(off)} off your line</div></div><div class="near-dist">🧭</div></div>`).join('') : `<div class="small" style="margin-top:12px;color:var(--muted)">No tokens near that route yet.</div>`}`;
+    .filter(x => x.off < 1600 && x.d > 50).sort((a, b) => a.off - b.off).slice(0, 6);
+  const body = `<div style="margin-bottom:10px"><div style="font-weight:800;font-size:16px">📍 ${esc(dest.name.split(',')[0])}</div><div class="small">${esc(dest.name.split(',').slice(1).join(',').trim())}</div></div>
+    ${near.length ? `<div class="small" style="margin:0 0 6px;color:var(--muted)">Tokens near your route - tick the ones you want to pick up on the way</div>` + near.map(({ n, off }) => `<label class="near-row" style="cursor:pointer"><input type="checkbox" class="dest-tok" value="${n.id}" onchange="destGoLabel()" style="width:20px;height:20px;accent-color:var(--accent);margin-right:10px"><div class="near-main"><div class="near-name" style="color:${COLORS[n.token_type] || '#00D4FF'}">● ${esc(n.campaigns?.business_name || 'Business')} · +${n.point_value} pts</div><div class="near-sub">${esc(rewardFor(n.campaigns?.business_id).reward_name || '')} · ${fmtDist(off)} off your route</div></div></label>`).join('') : `<div class="small" style="margin:0 0 10px;color:var(--muted)">No tokens near that route yet.</div>`}
+    <button class="btn btn-primary" id="dest-go" style="width:100%;margin-top:12px" onclick="destGo()">🧭 Go</button>`;
   sheet('Destination', '', body);
-  map.flyTo({ center: [dest.lng, dest.lat], zoom: 14 });
+  map.flyTo({ center: [dest.lng, dest.lat], zoom: 13 });
 }
+function destGoLabel() { const k = document.querySelectorAll('.dest-tok:checked').length; $('dest-go').textContent = k ? `🧭 Go · pick up ${k} token${k === 1 ? '' : 's'} on the way` : '🧭 Go'; }
+function destGo() { const ids = [...document.querySelectorAll('.dest-tok:checked')].map(x => x.value); startNavMulti(ids, pendingDest); }
 function openFindCategory(q) {
   q = (q || '').trim(); if (!q) return;
   const fq = $('find-q'); if (fq) { fq.value = ''; fq.blur(); }
