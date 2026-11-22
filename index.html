@@ -366,7 +366,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v69';
+const BUILD = 'v70';
 setInterval(() => { if (typeof drawMarkers === 'function' && Object.keys(markers || {}).length) drawMarkers(); }, 60000);
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
@@ -633,7 +633,18 @@ function initMap() {
   map.addControl(geolocate, 'bottom-right');
   map.on('load', () => { try { geolocate.trigger(); } catch (e) {}
     // show businesses and places on the map (the navigation style hides most of them); tap one to go there
-    try { map.getStyle().layers.filter(l => /poi-label|poi_label/.test(l.id)).forEach(l => { map.setLayoutProperty(l.id, 'visibility', 'visible'); map.setFilter(l.id, null); map.setLayoutProperty(l.id, 'text-size', ['interpolate', ['linear'], ['zoom'], 13, 10, 16, 13]); map.setPaintProperty(l.id, 'text-color', '#BFD8E6'); }); } catch (e) {}
+    try { map.getStyle().layers.filter(l => /poi-label|poi_label/.test(l.id)).forEach(l => {
+      map.setLayoutProperty(l.id, 'visibility', 'visible'); map.setFilter(l.id, null);
+      map.setLayoutProperty(l.id, 'text-size', ['interpolate', ['linear'], ['zoom'], 13, 12, 15, 14, 17, 17]);
+      map.setLayoutProperty(l.id, 'text-font', ['DIN Pro Medium', 'Arial Unicode MS Regular']);
+      map.setLayoutProperty(l.id, 'icon-image', ['coalesce', ['image', ['concat', ['get', 'maki'], '-15']], ['image', ['get', 'maki']], ['image', 'marker-15'], ['image', 'marker']]);
+      map.setLayoutProperty(l.id, 'icon-size', ['interpolate', ['linear'], ['zoom'], 13, 1, 16, 1.4]);
+      map.setLayoutProperty(l.id, 'icon-anchor', 'bottom'); map.setLayoutProperty(l.id, 'text-anchor', 'top'); map.setLayoutProperty(l.id, 'text-offset', [0, 0.3]);
+      map.setLayoutProperty(l.id, 'icon-allow-overlap', false);
+      map.setPaintProperty(l.id, 'text-color', ['match', ['get', 'class'], 'food_and_drink', '#FDBA74', 'food_and_drink_stores', '#FDBA74', 'shopping', '#F9A8D4', 'store_like', '#F9A8D4', 'medical', '#86EFAC', 'education', '#93C5FD', 'park_like', '#86EFAC', 'entertainment', '#C4B5FD', 'lodging', '#FDE68A', 'commercial_services', '#67E8F9', '#E2E8F0']);
+      map.setPaintProperty(l.id, 'text-halo-color', '#0A0F1E'); map.setPaintProperty(l.id, 'text-halo-width', 1.4);
+      map.setPaintProperty(l.id, 'icon-opacity', 1);
+    }); } catch (e) {}
   });
   map.on('error', e => console.warn('map error', e?.error?.message));
   map.on('click', e => { if (settingExit) { saveExit(e.lngLat.lat, e.lngLat.lng); return; } if (nearOpen) { toggleNear(); return; } if (!nav) tapPlace(e); });
