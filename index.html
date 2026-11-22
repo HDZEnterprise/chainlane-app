@@ -366,7 +366,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v66';
+const BUILD = 'v67';
 setInterval(() => { if (typeof drawMarkers === 'function' && Object.keys(markers || {}).length) drawMarkers(); }, 60000);
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
@@ -879,7 +879,7 @@ async function startNavMulti(nodeIds, dest) {
     sel.sort((a, b) => t(a) - t(b));
   }
   const n = sel[0] || null;
-  closeSheet();
+  closeSheet(); { const fq = $('find-q'); if (fq) fq.value = ''; hideSug(); }
   if (dest) { lastDest = dest; localStorage.setItem('cl_lastdest', JSON.stringify(dest)); }
   showDestMarker(dest || null);
   nav = { node: n, nodes: sel, dest: dest || null, mode: 'driving', routes: [], sel: 0, route: null, steps: [], stepIdx: 0, offCount: 0, spoken: {}, lastReroute: 0 };
@@ -906,6 +906,7 @@ async function startNavMulti(nodeIds, dest) {
 function setNavModeLabel() { $('n-mode').textContent = nav?.mode === 'walking' ? '🚶 Walk' : '🚗 Drive'; }
 function toggleNavMode() { if (!nav) return; nav.mode = nav.mode === 'walking' ? 'driving' : 'walking'; setNavModeLabel(); fetchRoutes(true); }
 function stopNav() {
+  const fq = $('find-q'); if (fq) fq.value = ''; hideSug();
   if (nav) (nav.nodes || (nav.node ? [nav.node] : [])).forEach(x => Promise.resolve(sb.rpc('end_nav', { p_node_id: x.id })).catch(() => {}));
   nav = null; showDestMarker(null); if (navTimer) { clearInterval(navTimer); navTimer = null; }
   $('navbar').classList.remove('on'); $('turn').classList.remove('on'); document.body.classList.remove('navigating'); $('recenter').classList.remove('on'); navFreeUntil = 0;
