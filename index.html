@@ -312,10 +312,11 @@
       <div class="labels"><span id="to-next">100 pts to next reward</span><span id="near-count" onclick="toggleNear()">0 tokens on map</span></div>
       <div class="labels" style="margin-top:4px"><span id="online" style="color:var(--success)">● — drivers online</span><span id="near-toggle" onclick="toggleNear()" style="cursor:pointer">Nearest ▾</span></div>
       <div class="near-list" id="near-list"></div>
-      <form id="find-bar" style="margin-top:8px;display:flex;gap:6px;align-items:center" onsubmit="event.preventDefault();openFind($('find-q').value);return false;">
-        <input class="hsearch" id="find-q" style="margin:0;padding:10px 12px;font-size:14px;flex:1" placeholder="🔍 Search a place or address" autocomplete="off" enterkeyhint="search" />
+      <form id="find-bar" style="margin-top:8px;display:flex;gap:6px;align-items:center" onsubmit="event.preventDefault();if(findSugs.length&&$('find-sug').style.display!=='none'){pickSug(0)}else{hideSug();openFind($('find-q').value)}return false;">
+        <input class="hsearch" id="find-q" style="margin:0;padding:10px 12px;font-size:14px;flex:1" placeholder="🔍 Search a place or address" autocomplete="off" enterkeyhint="search" oninput="findSuggest()" onfocus="findSuggest()" />
         <button type="submit" class="btn btn-primary" style="padding:10px 14px;width:auto">Go</button>
       </form>
+      <div id="find-sug" style="display:none;margin-top:6px;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden;max-height:260px;overflow-y:auto"></div>
       <div id="find-chips" style="display:flex;gap:6px;overflow-x:auto;margin-top:6px;scrollbar-width:none"><button class="chip" style="flex-shrink:0" onclick="openFind('Food')">Food</button><button class="chip" style="flex-shrink:0" onclick="openFind('Coffee')">Coffee</button><button class="chip" style="flex-shrink:0" onclick="openFind('Drinks')">Drinks</button><button class="chip" style="flex-shrink:0" onclick="openFind('Gym')">Gym</button><button class="chip" style="flex-shrink:0" onclick="openFind('Car')">Car</button><button class="chip" style="flex-shrink:0" onclick="openFind('Beauty')">Beauty</button><button class="chip" style="flex-shrink:0" onclick="openFind('Health')">Health</button><button class="chip" style="flex-shrink:0" onclick="openFind('Pets')">Pets</button><button class="chip" style="flex-shrink:0" onclick="openFind('Shopping')">Shopping</button><button class="chip" style="flex-shrink:0" onclick="openFind('Services')">Services</button></div>
     </div>
 
@@ -365,7 +366,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v63';
+const BUILD = 'v64';
 setInterval(() => { if (typeof drawMarkers === 'function' && Object.keys(markers || {}).length) drawMarkers(); }, 60000);
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
@@ -1580,6 +1581,35 @@ function searchTerms(q) {
   [...terms].forEach(w => (SYN[w] || []).forEach(t => terms.add(t.toLowerCase())));
   return [...terms];
 }
+/* Go box: live suggestions as you type (Mapbox Search Box: brands and places like "HEB", addresses), tap to go */
+let findTimer = null, findSession = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random())), findSugs = [];
+function findSuggest() {
+  const q = $('find-q').value.trim(); clearTimeout(findTimer);
+  if (q.length < 2) { hideSug(); return; }
+  findTimer = setTimeout(async () => {
+    try {
+      const prox = lastPos ? `${lastPos.lng},${lastPos.lat}` : '-95.3698,29.7604';
+      const r = await fetch(`https://api.mapbox.com/search/searchbox/v1/suggest?q=${encodeURIComponent(q)}&access_token=${MAPBOX_TOKEN}&session_token=${findSession}&proximity=${prox}&country=us&limit=8&types=poi,address,place,neighborhood,street&language=en`);
+      const j = await r.json(); findSugs = j.suggestions || [];
+      if ($('find-q').value.trim() !== q) return;
+      if (!findSugs.length) { hideSug(); return; }
+      $('find-sug').innerHTML = findSugs.map((x, i) => `<div class="near-row" style="padding:10px 12px" onclick="pickSug(${i})"><div class="near-main"><div class="near-name">📍 ${esc(x.name)}</div><div class="near-sub">${esc(x.full_address || x.place_formatted || '')}</div></div><div class="near-dist">${x.distance ? fmtDist(x.distance) : ''}</div></div>`).join('');
+      $('find-sug').style.display = '';
+    } catch (e) { hideSug(); }
+  }, 220);
+}
+function hideSug() { const el = $('find-sug'); if (el) { el.style.display = 'none'; el.innerHTML = ''; } }
+async function pickSug(i) {
+  const x = findSugs[i]; if (!x) return;
+  hideSug(); $('find-q').value = ''; $('find-q').blur();
+  try {
+    const r = await fetch(`https://api.mapbox.com/search/searchbox/v1/retrieve/${encodeURIComponent(x.mapbox_id)}?access_token=${MAPBOX_TOKEN}&session_token=${findSession}`);
+    const j = await r.json(); const f = j.features?.[0]; if (!f) throw new Error('no feature');
+    const [lng, lat] = f.geometry.coordinates;
+    findSession = crypto.randomUUID ? crypto.randomUUID() : String(Math.random());
+    pickDest({ lat, lng, name: [f.properties.name, f.properties.full_address || f.properties.place_formatted].filter(Boolean).join(', ') });
+  } catch (e) { openFind(x.name); }
+}
 /* Go box: search real destinations like a maps app, plus ChainLane businesses that match */
 const CHIP_WORDS = ['food','coffee','drinks','gym','car','beauty','health','pets','shopping','services'];
 async function openFind(q) {
@@ -1590,8 +1620,8 @@ async function openFind(q) {
   let places = [];
   try {
     const prox = lastPos ? `${lastPos.lng},${lastPos.lat}` : '-95.3698,29.7604';
-    const r = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json?access_token=${MAPBOX_TOKEN}&autocomplete=true&country=us&limit=8&types=poi,address,place,neighborhood&proximity=${prox}&bbox=-96.2,29.0,-94.7,30.4`);
-    const j = await r.json(); places = j.features || [];
+    const r = await fetch(`https://api.mapbox.com/search/searchbox/v1/forward?q=${encodeURIComponent(q)}&access_token=${MAPBOX_TOKEN}&proximity=${prox}&country=us&limit=8&types=poi,address,place,neighborhood,street&language=en`);
+    const j = await r.json(); places = (j.features || []).map(f => ({ text: f.properties.name, place_name: [f.properties.name, f.properties.full_address || f.properties.place_formatted].filter(Boolean).join(', '), center: f.geometry.coordinates }));
   } catch (e) {}
   const mine = homeEntries().map(e => ({ ...e, bz: bizInfo[e.bid] || {} })).filter(e => !isAd(e.n)).filter(e => { const t = searchTerms(q); const hay = [e.n.campaigns?.business_name, e.bz.offer_title, e.bz.category, e.bz.category_other].join(' ').toLowerCase(); return t.some(x => hay.includes(x)); }).slice(0, 3);
   const prow = f => { const d = lastPos ? distM(lastPos.lat, lastPos.lng, f.center[1], f.center[0]) : null; const dest = { lat: f.center[1], lng: f.center[0], name: f.place_name };
