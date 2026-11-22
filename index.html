@@ -313,7 +313,7 @@
       <div class="labels" style="margin-top:4px"><span id="online" style="color:var(--success)">● — drivers online</span><span id="near-toggle" onclick="toggleNear()" style="cursor:pointer">Nearest ▾</span></div>
       <div class="near-list" id="near-list"></div>
       <form id="find-bar" style="margin-top:8px;display:flex;gap:6px;align-items:center" onsubmit="event.preventDefault();openFind($('find-q').value);return false;">
-        <input class="hsearch" id="find-q" style="margin:0;padding:10px 12px;font-size:14px;flex:1" placeholder="🔍 tacos, coffee, car wash… near me" autocomplete="off" enterkeyhint="search" />
+        <input class="hsearch" id="find-q" style="margin:0;padding:10px 12px;font-size:14px;flex:1" placeholder="🔍 Search a place or address" autocomplete="off" enterkeyhint="search" />
         <button type="submit" class="btn btn-primary" style="padding:10px 14px;width:auto">Go</button>
       </form>
       <div id="find-chips" style="display:flex;gap:6px;overflow-x:auto;margin-top:6px;scrollbar-width:none"><button class="chip" style="flex-shrink:0" onclick="openFind('Food')">Food</button><button class="chip" style="flex-shrink:0" onclick="openFind('Coffee')">Coffee</button><button class="chip" style="flex-shrink:0" onclick="openFind('Drinks')">Drinks</button><button class="chip" style="flex-shrink:0" onclick="openFind('Gym')">Gym</button><button class="chip" style="flex-shrink:0" onclick="openFind('Car')">Car</button><button class="chip" style="flex-shrink:0" onclick="openFind('Beauty')">Beauty</button><button class="chip" style="flex-shrink:0" onclick="openFind('Health')">Health</button><button class="chip" style="flex-shrink:0" onclick="openFind('Pets')">Pets</button><button class="chip" style="flex-shrink:0" onclick="openFind('Shopping')">Shopping</button><button class="chip" style="flex-shrink:0" onclick="openFind('Services')">Services</button></div>
@@ -365,7 +365,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v62';
+const BUILD = 'v63';
 setInterval(() => { if (typeof drawMarkers === 'function' && Object.keys(markers || {}).length) drawMarkers(); }, 60000);
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
@@ -866,14 +866,13 @@ function destSuggest(nodeId) {
   }, 250);
 }
 async function startNav(nodeId, dest) {
-  const n = nodes.find(x => x.id === nodeId); if (!n) return;
+  const n = nodeId ? nodes.find(x => x.id === nodeId) : null; if (nodeId && !n) return;
+  if (!n && !dest) return;
   closeSheet();
   if (dest) { lastDest = dest; localStorage.setItem('cl_lastdest', JSON.stringify(dest)); }
   showDestMarker(dest || null);
-  const d0 = lastPos ? distM(lastPos.lat, lastPos.lng, n.lat, n.lng) : Infinity;
-  const slow = !lastPos || !lastPos.speed || lastPos.speed < 2.2;
   nav = { node: n, dest: dest || null, mode: 'driving', routes: [], sel: 0, route: null, steps: [], stepIdx: 0, offCount: 0, spoken: {}, lastReroute: 0 };
-  Promise.resolve(sb.rpc('start_nav', { p_node_id: n.id })).catch(() => {});
+  if (n) Promise.resolve(sb.rpc('start_nav', { p_node_id: n.id })).catch(() => {});
   if (n) setFocus(n.campaigns?.business_id, n.campaigns?.business_name);
   setNavModeLabel();
   $('navbar').classList.add('on'); $('turn').classList.add('on'); document.body.classList.add('navigating');
@@ -1581,7 +1580,39 @@ function searchTerms(q) {
   [...terms].forEach(w => (SYN[w] || []).forEach(t => terms.add(t.toLowerCase())));
   return [...terms];
 }
-function openFind(q) {
+/* Go box: search real destinations like a maps app, plus ChainLane businesses that match */
+const CHIP_WORDS = ['food','coffee','drinks','gym','car','beauty','health','pets','shopping','services'];
+async function openFind(q) {
+  q = (q || '').trim(); if (!q) return;
+  if (CHIP_WORDS.includes(q.toLowerCase())) return openFindCategory(q);   // the chips still browse ChainLane categories
+  const fq = $('find-q'); if (fq) { fq.value = ''; fq.blur(); }
+  sheet(`Search`, '', '<div class="empty">Searching…</div>'); document.querySelector('.sheet').classList.add('tall');
+  let places = [];
+  try {
+    const prox = lastPos ? `${lastPos.lng},${lastPos.lat}` : '-95.3698,29.7604';
+    const r = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json?access_token=${MAPBOX_TOKEN}&autocomplete=true&country=us&limit=8&types=poi,address,place,neighborhood&proximity=${prox}&bbox=-96.2,29.0,-94.7,30.4`);
+    const j = await r.json(); places = j.features || [];
+  } catch (e) {}
+  const mine = homeEntries().map(e => ({ ...e, bz: bizInfo[e.bid] || {} })).filter(e => !isAd(e.n)).filter(e => { const t = searchTerms(q); const hay = [e.n.campaigns?.business_name, e.bz.offer_title, e.bz.category, e.bz.category_other].join(' ').toLowerCase(); return t.some(x => hay.includes(x)); }).slice(0, 3);
+  const prow = f => { const d = lastPos ? distM(lastPos.lat, lastPos.lng, f.center[1], f.center[0]) : null; const dest = { lat: f.center[1], lng: f.center[0], name: f.place_name };
+    return `<div class="near-row" onclick='pickDest(${JSON.stringify(dest).replace(/'/g, "&#39;")})'><div class="near-main"><div class="near-name">📍 ${esc(f.text)}</div><div class="near-sub">${esc(f.place_name.replace(f.text + ', ', ''))}</div></div><div class="near-dist">${d != null ? fmtDist(d) : ''}</div></div>`; };
+  const body = (mine.length ? `<div class="small" style="margin:0 0 6px;color:var(--muted)">On ChainLane</div>` + mine.map(({ n, d }) => `<div class="near-row" onclick="closeSheet();openSheet('token', nodes.find(x => x.id === '${n.id}'))"><div class="near-main"><div class="near-name" style="color:${COLORS[n.token_type] || '#00D4FF'}">● ${esc(n.campaigns?.business_name || 'Business')}</div><div class="near-sub">+${n.point_value} pts · ${esc(rewardFor(n.campaigns?.business_id).reward_name || '')}</div></div><div class="near-dist">${d != null ? fmtDist(d) : ''}</div></div>`).join('') : '')
+    + (places.length ? `<div class="small" style="margin:${mine.length ? '12px' : '0'} 0 6px;color:var(--muted)">Places</div>` + places.map(prow).join('') : '')
+    + (!places.length && !mine.length ? `<div class="empty">Nothing found for "${esc(q)}".</div>` : '');
+  sheet(`"${q}"`, '', body); document.querySelector('.sheet').classList.add('tall');
+}
+function pickDest(dest) {
+  // show the destination and the tokens you could collect on the way (within ~1.2 km of the straight line, then the router decides)
+  const from = lastPos || { lat: 29.7604, lng: -95.3698 };
+  const near = nodes.filter(n => !isAd(n) && n.is_active !== false && nodeOpen(n) && !bizCool(n.campaigns?.business_id)).map(n => ({ n, off: closestPointOnSegment(from.lat, from.lng, dest.lat, dest.lng, n.lat, n.lng).d, d: distM(from.lat, from.lng, n.lat, n.lng) }))
+    .filter(x => x.off < 1200 && x.d > 50).sort((a, b) => a.off - b.off).slice(0, 4);
+  const body = `<div class="row" style="margin-bottom:10px"><div><div style="font-weight:800;font-size:16px">📍 ${esc(dest.name.split(',')[0])}</div><div class="small">${esc(dest.name.split(',').slice(1).join(',').trim())}</div></div></div>
+    <button class="btn btn-primary" style="width:100%" onclick='startNav(null, ${JSON.stringify(dest).replace(/'/g, "&#39;")})'>🧭 Navigate there</button>
+    ${near.length ? `<div class="small" style="margin:14px 0 6px;color:var(--muted)">Tokens on your way - pick one and we route through it</div>` + near.map(({ n, off }) => `<div class="near-row" onclick='startNav("${n.id}", ${JSON.stringify(dest).replace(/'/g, "&#39;")})'><div class="near-main"><div class="near-name" style="color:${COLORS[n.token_type] || '#00D4FF'}">● ${esc(n.campaigns?.business_name || 'Business')} · +${n.point_value} pts</div><div class="near-sub">${esc(rewardFor(n.campaigns?.business_id).reward_name || '')} · about ${fmtDist(off)} off your line</div></div><div class="near-dist">🧭</div></div>`).join('') : `<div class="small" style="margin-top:12px;color:var(--muted)">No tokens near that route yet.</div>`}`;
+  sheet('Destination', '', body);
+  map.flyTo({ center: [dest.lng, dest.lat], zoom: 14 });
+}
+function openFindCategory(q) {
   q = (q || '').trim(); if (!q) return;
   const fq = $('find-q'); if (fq) { fq.value = ''; fq.blur(); }
   const terms = searchTerms(q);
