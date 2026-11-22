@@ -366,7 +366,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v67';
+const BUILD = 'v68';
 setInterval(() => { if (typeof drawMarkers === 'function' && Object.keys(markers || {}).length) drawMarkers(); }, 60000);
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
@@ -880,7 +880,7 @@ async function startNavMulti(nodeIds, dest) {
   }
   const n = sel[0] || null;
   closeSheet(); { const fq = $('find-q'); if (fq) fq.value = ''; hideSug(); }
-  if (dest) { lastDest = dest; localStorage.setItem('cl_lastdest', JSON.stringify(dest)); }
+  if (dest) { lastDest = dest; localStorage.setItem('cl_lastdest', JSON.stringify(dest)); rememberDest(dest); }
   showDestMarker(dest || null);
   nav = { node: n, nodes: sel, dest: dest || null, mode: 'driving', routes: [], sel: 0, route: null, steps: [], stepIdx: 0, offCount: 0, spoken: {}, lastReroute: 0 };
   sel.forEach(x => Promise.resolve(sb.rpc('start_nav', { p_node_id: x.id })).catch(() => {}));
@@ -1599,9 +1599,17 @@ let findTimer = null, findSession = (crypto.randomUUID ? crypto.randomUUID() : S
 async function loadPlaces() { if (Date.now() - placesAt < 5 * 60000) return; try { const { data } = await sb.from('places').select('id,name,address,lat,lng').order('uses', { ascending: false }).limit(2000); PLACES = data || []; placesAt = Date.now(); } catch (e) {} }
 function cleanQ(q) { return q.replace(/\b(in|near)?\s*(houston|htx|tx|texas)\b/gi, '').replace(/\s+/g, ' ').trim(); }
 function placeMatches(q) { const t = cleanQ(q).toLowerCase(); if (t.length < 2) return []; return PLACES.filter(p => p.name.toLowerCase().includes(t) || (p.address || '').toLowerCase().includes(t)).slice(0, 4).map(p => ({ community: true, name: p.name, full_address: p.address || '', lat: p.lat, lng: p.lng, distance: lastPos ? distM(lastPos.lat, lastPos.lng, p.lat, p.lng) : 0 })); }
+let recentDests = JSON.parse(localStorage.getItem('cl_recent') || '[]');
+function rememberDest(d) { recentDests = [d].concat(recentDests.filter(x => x.name !== d.name)).slice(0, 6); localStorage.setItem('cl_recent', JSON.stringify(recentDests)); }
+function showRecent() {
+  if (!recentDests.length) { hideSug(); return; }
+  findSugs = recentDests.map(d => ({ community: true, recent: true, name: d.name.split(',')[0], full_address: d.name.split(',').slice(1).join(',').trim(), lat: d.lat, lng: d.lng, distance: lastPos ? distM(lastPos.lat, lastPos.lng, d.lat, d.lng) : 0 }));
+  $('find-sug').innerHTML = `<div class="small" style="padding:8px 12px 2px;color:var(--muted)">Recent</div>` + findSugs.map((x, i) => `<div class="near-row" style="padding:10px 12px" onclick="pickSug(${i})"><div class="near-main"><div class="near-name">🕘 ${esc(x.name)}</div><div class="near-sub">${esc(x.full_address)}</div></div><div class="near-dist">${x.distance ? fmtDist(x.distance) : ''}</div></div>`).join('');
+  $('find-sug').style.display = '';
+}
 function findSuggest() {
   const q = $('find-q').value.trim(); clearTimeout(findTimer);
-  if (q.length < 2) { hideSug(); return; }
+  if (q.length < 2) { showRecent(); return; }
   findTimer = setTimeout(async () => {
     try {
       loadPlaces();
@@ -1693,20 +1701,25 @@ async function openFind(q) {
     + `<button class="btn btn-ghost" style="width:100%;margin-top:12px" onclick="$('find-q').value=${JSON.stringify(q)};addPlaceStart()">➕ Can't find it? Add it</button>`;
   sheet(`"${q}"`, '', body); document.querySelector('.sheet').classList.add('tall');
 }
-let pendingDest = null;
+let pendingDest = null, destPicked = new Set();
 function pickDest(dest) {
-  pendingDest = dest;
+  pendingDest = dest; destPicked = new Set();
   const from = lastPos || { lat: 29.7604, lng: -95.3698 };
   const near = nodes.filter(n => !isAd(n) && n.is_active !== false && nodeOpen(n) && !bizCool(n.campaigns?.business_id)).map(n => ({ n, off: closestPointOnSegment(from.lat, from.lng, dest.lat, dest.lng, n.lat, n.lng).d, d: distM(from.lat, from.lng, n.lat, n.lng) }))
     .filter(x => x.off < 1600 && x.d > 50).sort((a, b) => a.off - b.off).slice(0, 6);
   const body = `<div style="margin-bottom:10px"><div style="font-weight:800;font-size:16px">📍 ${esc(dest.name.split(',')[0])}</div><div class="small">${esc(dest.name.split(',').slice(1).join(',').trim())}</div></div>
-    ${near.length ? `<div class="small" style="margin:0 0 6px;color:var(--muted)">Tokens near your route - tick the ones you want to pick up on the way</div>` + near.map(({ n, off }) => `<label class="near-row" style="cursor:pointer"><input type="checkbox" class="dest-tok" value="${n.id}" onchange="destGoLabel()" style="width:20px;height:20px;accent-color:var(--accent);margin-right:10px"><div class="near-main"><div class="near-name" style="color:${COLORS[n.token_type] || '#00D4FF'}">● ${esc(n.campaigns?.business_name || 'Business')} · +${n.point_value} pts</div><div class="near-sub">${esc(rewardFor(n.campaigns?.business_id).reward_name || '')} · ${fmtDist(off)} off your route</div></div></label>`).join('') : `<div class="small" style="margin:0 0 10px;color:var(--muted)">No tokens near that route yet.</div>`}
-    <button class="btn btn-primary" id="dest-go" style="width:100%;margin-top:12px" onclick="destGo()">🧭 Go</button>`;
+    ${near.length ? `<div class="small" style="margin:0 0 6px;color:var(--muted)">Tokens near your route - tick the ones you want to pick up on the way</div>` + near.map(({ n, off }) => `<div class="near-row" id="dt-${n.id}" style="cursor:pointer" onclick="destToggle('${n.id}')"><div class="dt-box" style="width:24px;height:24px;border-radius:7px;border:2px solid var(--line);margin-right:10px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-weight:900;color:#0a0f1e"></div><div class="near-main"><div class="near-name" style="color:${COLORS[n.token_type] || '#00D4FF'}">● ${esc(n.campaigns?.business_name || 'Business')} · +${n.point_value} pts</div><div class="near-sub">${esc(rewardFor(n.campaigns?.business_id).reward_name || '')} · ${fmtDist(off)} off your route</div></div></div>`).join('') : `<div class="small" style="margin:0 0 10px;color:var(--muted)">No tokens near that route yet.</div>`}
+    <button class="btn btn-primary" id="dest-go" style="width:100%;margin-top:12px" onclick="destGo()">🧭 Go · destination only</button>`;
   sheet('Destination', '', body);
   map.flyTo({ center: [dest.lng, dest.lat], zoom: 13 });
 }
-function destGoLabel() { const k = document.querySelectorAll('.dest-tok:checked').length; $('dest-go').textContent = k ? `🧭 Go · pick up ${k} token${k === 1 ? '' : 's'} on the way` : '🧭 Go'; }
-function destGo() { const ids = [...document.querySelectorAll('.dest-tok:checked')].map(x => x.value); startNavMulti(ids, pendingDest); }
+function destToggle(id) {
+  if (destPicked.has(id)) destPicked.delete(id); else destPicked.add(id);
+  const row = $('dt-' + id); if (row) { const box = row.querySelector('.dt-box'); const on = destPicked.has(id); box.textContent = on ? '✓' : ''; box.style.background = on ? 'var(--accent)' : ''; box.style.borderColor = on ? 'var(--accent)' : 'var(--line)'; }
+  destGoLabel();
+}
+function destGoLabel() { const k = destPicked.size; $('dest-go').textContent = k ? `🧭 Go · pick up ${k} token${k === 1 ? '' : 's'} on the way` : '🧭 Go · destination only'; }
+function destGo() { startNavMulti([...destPicked], pendingDest); }
 function openFindCategory(q) {
   q = (q || '').trim(); if (!q) return;
   const fq = $('find-q'); if (fq) { fq.value = ''; fq.blur(); }
