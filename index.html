@@ -366,7 +366,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v68';
+const BUILD = 'v69';
 setInterval(() => { if (typeof drawMarkers === 'function' && Object.keys(markers || {}).length) drawMarkers(); }, 60000);
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
@@ -631,9 +631,13 @@ function initMap() {
   map = new mapboxgl.Map({ container: 'map', style: 'mapbox://styles/mapbox/navigation-night-v1', center: DEFAULT_CENTER, zoom: 12, attributionControl: true });
   geolocate = new mapboxgl.GeolocateControl({ positionOptions: { enableHighAccuracy: true }, trackUserLocation: true, showUserHeading: true, showAccuracyCircle: false, fitBoundsOptions: { maxZoom: 15 } });
   map.addControl(geolocate, 'bottom-right');
-  map.on('load', () => { try { geolocate.trigger(); } catch (e) {} });
+  map.on('load', () => { try { geolocate.trigger(); } catch (e) {}
+    // show businesses and places on the map (the navigation style hides most of them); tap one to go there
+    try { map.getStyle().layers.filter(l => /poi-label|poi_label/.test(l.id)).forEach(l => { map.setLayoutProperty(l.id, 'visibility', 'visible'); map.setFilter(l.id, null); map.setLayoutProperty(l.id, 'text-size', ['interpolate', ['linear'], ['zoom'], 13, 10, 16, 13]); map.setPaintProperty(l.id, 'text-color', '#BFD8E6'); }); } catch (e) {}
+  });
   map.on('error', e => console.warn('map error', e?.error?.message));
-  map.on('click', e => { if (settingExit) { saveExit(e.lngLat.lat, e.lngLat.lng); return; } if (nearOpen) toggleNear(); });
+  map.on('click', e => { if (settingExit) { saveExit(e.lngLat.lat, e.lngLat.lng); return; } if (nearOpen) { toggleNear(); return; } if (!nav) tapPlace(e); });
+  map.on('dblclick', () => clearTimeout(tapTimer));
   map.on('dragstart', () => { if (nearOpen) toggleNear(); });
   const userMoved = e => { if (nav && e.originalEvent) { navFreeUntil = Date.now() + 20000; $('recenter').classList.add('on'); } };
   map.on('dragstart', userMoved); map.on('zoomstart', userMoved); map.on('rotatestart', userMoved); map.on('pitchstart', userMoved);
@@ -1635,6 +1639,23 @@ async function pickSug(i) {
     findSession = crypto.randomUUID ? crypto.randomUUID() : String(Math.random());
     pickDest({ lat, lng, name: [f.properties.name, f.properties.full_address || f.properties.place_formatted].filter(Boolean).join(', ') });
   } catch (e) { openFind(x.name); }
+}
+/* Tap a place on the map (a store label, or any spot) -> Destination card */
+let tapTimer = null;
+function tapPlace(e) {
+  clearTimeout(tapTimer);
+  tapTimer = setTimeout(async () => {
+    const layers = map.getStyle().layers.filter(l => /poi-label|poi_label/.test(l.id)).map(l => l.id);
+    const b = 14, hit = layers.length ? map.queryRenderedFeatures([[e.point.x - b, e.point.y - b], [e.point.x + b, e.point.y + b]], { layers })[0] : null;
+    if (hit) { const c = hit.geometry.coordinates; pickDest({ lat: c[1], lng: c[0], name: hit.properties.name || hit.properties.name_en || 'Place' }); return; }
+    if (map.getZoom() < 15) return;   // zoomed out: a plain tap is just a tap
+    try {
+      const r = await fetch(`https://api.mapbox.com/search/searchbox/v1/reverse?longitude=${e.lngLat.lng}&latitude=${e.lngLat.lat}&access_token=${MAPBOX_TOKEN}&limit=1&types=address,street,poi`);
+      const f = (await r.json()).features?.[0];
+      const name = f ? (f.properties.name + (f.properties.place_formatted ? ', ' + f.properties.place_formatted : '')) : 'Dropped pin';
+      pickDest({ lat: e.lngLat.lat, lng: e.lngLat.lng, name });
+    } catch (x) { pickDest({ lat: e.lngLat.lat, lng: e.lngLat.lng, name: 'Dropped pin' }); }
+  }, 250);
 }
 /* "Can't find it? Add it": name + address -> saved for everyone */
 let addSugs = [], addTimer = null;
