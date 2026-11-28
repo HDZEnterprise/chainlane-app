@@ -372,7 +372,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v77';
+const BUILD = 'v78';
 setInterval(() => { if (typeof drawMarkers === 'function' && Object.keys(markers || {}).length) drawMarkers(); }, 60000);
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
@@ -479,6 +479,7 @@ let GATE = 'open';
 async function loadGate() { try { const { data } = await sb.from('app_settings').select('value').eq('key', 'driver_gate').maybeSingle(); GATE = (data && String(data.value).replace(/"/g, '')) || 'open'; } catch (e) {} return GATE; }
 function showAuth() {
   $('auth').classList.remove('hidden'); $('app').classList.add('hidden'); stopTracking();
+  if (/[?&]install\b/.test(location.search)) setTimeout(maybeShowInstall, 800);
   const fromWaitlist = /[?&](signup|join|waitlist)\b/.test(location.search);
   if (fromWaitlist) authTab('up');
   // Waitlist mode: the app's own login page has no sign-up. Joining happens only through the website's waitlist link (?join).
@@ -548,7 +549,9 @@ window.addEventListener('appinstalled', () => { hideInstall(); toast('ok', '📲
 function maybeShowInstall() {
   if (isStandalone()) return;
   if (+localStorage.getItem('cl_install_dismissed') > Date.now()) return;
-  const bar = $('install-bar'); if (!bar || $('app').classList.contains('hidden')) return;
+  const bar = $('install-bar'); if (!bar) return;
+  if ($('app').classList.contains('hidden') && !/[?&]install\b/.test(location.search)) return;   // on the login screen only when the website sent them here to install
+  bar.style.bottom = $('app').classList.contains('hidden') ? '16px' : '74px';
   if (installEvt) { $('install-sub').textContent = 'One tap. Full screen, faster, on your home screen.'; $('install-btn').textContent = 'Install'; }
   else if (isIOS()) { $('install-sub').textContent = 'Tap Share, then "Add to Home Screen".'; $('install-btn').textContent = 'How'; }
   else return;   // Android: only the real one-tap install, no instructions card
