@@ -372,7 +372,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v75';
+const BUILD = 'v77';
 setInterval(() => { if (typeof drawMarkers === 'function' && Object.keys(markers || {}).length) drawMarkers(); }, 60000);
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
@@ -549,14 +549,20 @@ function maybeShowInstall() {
   if (isStandalone()) return;
   if (+localStorage.getItem('cl_install_dismissed') > Date.now()) return;
   const bar = $('install-bar'); if (!bar || $('app').classList.contains('hidden')) return;
-  if (installEvt) { $('install-sub').textContent = 'One tap. Full screen, faster, on your home screen.'; $('install-btn').textContent = 'Install'; bar.style.display = 'flex'; }
-  else if (isIOS()) { $('install-sub').textContent = 'Tap Share, then "Add to Home Screen".'; $('install-btn').textContent = 'How'; bar.style.display = 'flex'; }
+  if (installEvt) { $('install-sub').textContent = 'One tap. Full screen, faster, on your home screen.'; $('install-btn').textContent = 'Install'; }
+  else if (isIOS()) { $('install-sub').textContent = 'Tap Share, then "Add to Home Screen".'; $('install-btn').textContent = 'How'; }
+  else return;   // Android: only the real one-tap install, no instructions card
+  bar.style.display = 'flex';
 }
 async function installApp() {
   if (installEvt) { installEvt.prompt(); const r = await installEvt.userChoice.catch(() => null); installEvt = null; if (r && r.outcome === 'accepted') hideInstall(); return; }
-  sheet('Install ChainLane on iPhone', 'Takes 5 seconds.', `<div class="near-row"><div class="near-main"><div class="near-name">1. Tap the Share button</div><div class="near-sub">The square with the arrow at the bottom of Safari.</div></div></div>
+  if (isIOS()) sheet('Install ChainLane on iPhone', 'Takes 5 seconds.', `<div class="near-row"><div class="near-main"><div class="near-name">1. Tap the Share button</div><div class="near-sub">The square with the arrow at the bottom of Safari.</div></div></div>
     <div class="near-row"><div class="near-main"><div class="near-name">2. Tap "Add to Home Screen"</div><div class="near-sub">Scroll down a little in the share menu.</div></div></div>
     <div class="near-row"><div class="near-main"><div class="near-name">3. Tap Add</div><div class="near-sub">ChainLane opens full screen from your home screen from now on.</div></div></div>`);
+  else sheet('Install ChainLane', 'Takes 5 seconds.', `<div class="near-row"><div class="near-main"><div class="near-name">1. Tap the browser menu</div><div class="near-sub">The three dots (Chrome) or three lines (Samsung Internet).</div></div></div>
+    <div class="near-row"><div class="near-main"><div class="near-name">2. Tap "Add to Home screen" or "Install app"</div><div class="near-sub">Then confirm.</div></div></div>
+    <div class="near-row"><div class="near-main"><div class="near-name">3. Open it from your home screen</div><div class="near-sub">Full screen, no browser bar, from now on.</div></div></div>
+    <div class="small" style="margin-top:10px;color:var(--muted)">Already see a ChainLane icon on your home screen? Then it is installed - open it from there.</div>`);
 }
 function dismissInstall() { localStorage.setItem('cl_install_dismissed', String(Date.now() + 7 * 86400000)); hideInstall(); }
 function hideInstall() { const bar = $('install-bar'); if (bar) bar.style.display = 'none'; }
@@ -2022,6 +2028,7 @@ function sheetProfile() {
       <div class="stat"><b style="color:${subbed ? 'var(--success)' : 'var(--muted)'}">${subbed ? 'Active' : 'None'}</b><span>subscription</span></div>
     </div>
     <div class="row"><span>Zip code</span><span>${esc(profile?.zip_code || '—')}</span></div>
+    ${isStandalone() ? '' : `<div class="row"><span>Install the app</span><span><a href="#" onclick="installApp();return false;">Install</a></span></div>`}
     <div class="row" style="align-items:flex-start"><span>Navigation voice</span><span style="text-align:right"><a href="#" onclick="pickVoiceUI();return false;">${navVoice ? esc(voiceLabel(navVoice)) : 'Alison'}</a></span></div>
     <div class="row" style="align-items:flex-start"><span>My interests</span><span style="text-align:right">${(profile?.interests || []).length ? esc(profile.interests.join(', ')) : '<span style="color:var(--muted)">none yet</span>'} <a href="#" onclick="editInterests();return false;">edit</a></span></div>
     <div class="row"><span>Member since</span><span>${fmtDate(profile?.created_at)}</span></div>

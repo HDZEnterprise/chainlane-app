@@ -1,5 +1,5 @@
 // ChainLane service worker - network first, cache fallback. CACHE_NAME is set by deploy-app.ps1 from the app BUILD.
-const CACHE_NAME = "chainlane-app-v75";
+const CACHE_NAME = "chainlane-app-v77";
 const ASSETS = ["/", "/index.html", "/manifest.json", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", event => {
