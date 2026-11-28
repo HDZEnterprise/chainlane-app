@@ -341,6 +341,12 @@
   <button class="fab voice" id="voice-fab" onclick="toggleVoice()" title="Voice on/off">🔊</button>
 
   <div class="toast-wrap" id="toasts"></div>
+  <div id="install-bar" style="display:none;position:fixed;left:12px;right:12px;bottom:74px;z-index:60;background:#111827;border:1px solid var(--accent);border-radius:16px;padding:12px 14px;box-shadow:0 8px 30px rgba(0,0,0,.5);align-items:center;gap:12px">
+    <img src="/icons/apple-touch-icon.png" alt="" style="width:44px;height:44px;border-radius:12px;flex-shrink:0">
+    <div style="flex:1;min-width:0"><div style="font-weight:800">Install ChainLane</div><div class="small" id="install-sub" style="color:var(--muted)">Full screen, faster, on your home screen.</div></div>
+    <button class="btn btn-primary" id="install-btn" style="width:auto;padding:10px 14px" onclick="installApp()">Install</button>
+    <button class="btn btn-ghost" style="width:auto;padding:10px 10px" onclick="dismissInstall()">✕</button>
+  </div>
 
   <div class="turn" id="turn"><div class="t-ic" id="t-ic">⬆️</div><div style="flex:1"><div class="t-dist" id="t-dist"></div><div class="t-ins" id="t-ins"></div><div class="t-then" id="t-then"></div></div></div>
   <button class="recenter" id="recenter" onclick="recenterNav()">⌖ Re-center</button>
@@ -366,7 +372,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v74';
+const BUILD = 'v75';
 setInterval(() => { if (typeof drawMarkers === 'function' && Object.keys(markers || {}).length) drawMarkers(); }, 60000);
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
@@ -533,6 +539,27 @@ async function handleDeepLink() {
 async function signOut() { closeSheet(); await sb.auth.signOut(); showAuth(); }
 
 /* ---------------- App ---------------- */
+/* ---- Install banner: one-tap install on Android (Chrome's real install prompt); step hint on iPhone ---- */
+let installEvt = null;
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; maybeShowInstall(); });
+window.addEventListener('appinstalled', () => { hideInstall(); toast('ok', '📲', 'Installed', 'ChainLane is on your home screen.'); });
+function maybeShowInstall() {
+  if (isStandalone()) return;
+  if (+localStorage.getItem('cl_install_dismissed') > Date.now()) return;
+  const bar = $('install-bar'); if (!bar || $('app').classList.contains('hidden')) return;
+  if (installEvt) { $('install-sub').textContent = 'One tap. Full screen, faster, on your home screen.'; $('install-btn').textContent = 'Install'; bar.style.display = 'flex'; }
+  else if (isIOS()) { $('install-sub').textContent = 'Tap Share, then "Add to Home Screen".'; $('install-btn').textContent = 'How'; bar.style.display = 'flex'; }
+}
+async function installApp() {
+  if (installEvt) { installEvt.prompt(); const r = await installEvt.userChoice.catch(() => null); installEvt = null; if (r && r.outcome === 'accepted') hideInstall(); return; }
+  sheet('Install ChainLane on iPhone', 'Takes 5 seconds.', `<div class="near-row"><div class="near-main"><div class="near-name">1. Tap the Share button</div><div class="near-sub">The square with the arrow at the bottom of Safari.</div></div></div>
+    <div class="near-row"><div class="near-main"><div class="near-name">2. Tap "Add to Home Screen"</div><div class="near-sub">Scroll down a little in the share menu.</div></div></div>
+    <div class="near-row"><div class="near-main"><div class="near-name">3. Tap Add</div><div class="near-sub">ChainLane opens full screen from your home screen from now on.</div></div></div>`);
+}
+function dismissInstall() { localStorage.setItem('cl_install_dismissed', String(Date.now() + 7 * 86400000)); hideInstall(); }
+function hideInstall() { const bar = $('install-bar'); if (bar) bar.style.display = 'none'; }
 async function enterApp() {
   $('auth').classList.add('hidden'); $('app').classList.remove('hidden');
   await loadProfile();
@@ -543,6 +570,7 @@ async function enterApp() {
     const letIn = WORLD || (profile && (profile.role === 'admin' || profile.can_demo || profile.demo_only)) || isSubscribed();
     if (gate === 'waitlist' && !letIn) { showWelcome(profile?.full_name || '', true); return; }
   } catch (e) {}
+  setTimeout(maybeShowInstall, 2500);
   if (!map) initMap();
   await Promise.all([loadSettings(), loadCooldowns()]);
   await loadNodes();
