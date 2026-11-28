@@ -372,7 +372,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v80';
+const BUILD = 'v81';
 setInterval(() => { if (typeof drawMarkers === 'function' && Object.keys(markers || {}).length) drawMarkers(); }, 60000);
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
@@ -571,11 +571,11 @@ function dismissInstall() { localStorage.setItem('cl_install_dismissed', String(
 function hideInstall() { const bar = $('install-bar'); if (bar) bar.style.display = 'none'; }
 /* How to play: 5 cards, shown on every login until "Got it, don't show again"; the ? button reopens it any time */
 const HOWTO = [
-  ['🪙', 'Tokens live on the road', 'Businesses put a token on the street in front of their door. Each drive-through pays the road\'s points: 25 on a main road, 50 on a mini main road, 100 on a secret road.'],
-  ['🧭', 'Tap a token, tap Navigate, drive', 'Pickups only count when you are navigating to that token. Set it up while parked, then drive through - it collects by itself, hands-free. No tapping while moving.'],
-  ['🎯', '100 points = a reward', 'Points stay with the business you earned them at. At 100 points you have earned that business\'s reward - a free coffee, a car wash, 20% off, whatever they set.'],
-  ['✅', 'Walk in and scan the sticker', 'At the counter, scan the ChainLane sticker. Your screen turns green, the reward is yours. Then rate the place for other drivers.'],
-  ['🔍', 'Going somewhere? Pick up tokens on the way', 'Search any place or address, tick the tokens near your route, hit Go. Points on the drive you were already making.']
+  ['🪙', 'Tokens are on the road', 'Each drive-through = points.<br><b>25 · 50 · 100</b>'],
+  ['🧭', 'Tap a token. Tap Navigate. Drive.', 'It collects by itself.<br>Hands on the wheel.'],
+  ['🎯', '100 points = a reward', 'From that business.<br>Free coffee, car wash, 20% off…'],
+  ['✅', 'Walk in. Scan the sticker.', 'Screen turns green.<br>Enjoy.'],
+  ['🔍', 'Going somewhere?', 'Search it. Tick tokens on the way. Go.']
 ];
 let howIdx = 0;
 function howToPlay(manual) {
@@ -588,8 +588,8 @@ function howRender(manual) {
   $('howto').innerHTML = `<div style="background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:26px 22px;max-width:380px;width:100%;text-align:center">
     <div style="font-size:56px;line-height:1">${ic}</div>
     <div style="font-size:12px;letter-spacing:2px;color:var(--accent);font-weight:700;margin:14px 0 6px">HOW TO PLAY · ${howIdx + 1} OF ${HOWTO.length}</div>
-    <h2 style="margin:0 0 10px;font-size:22px">${t}</h2>
-    <p style="color:#d6dbe6;line-height:1.55;margin:0 0 18px;font-size:15px">${body}</p>
+    <h2 style="margin:0 0 10px;font-size:24px;line-height:1.2">${t}</h2>
+    <p style="color:#d6dbe6;line-height:1.5;margin:0 0 18px;font-size:19px">${body}</p>
     <div style="display:flex;gap:6px;justify-content:center;margin-bottom:16px">${HOWTO.map((_, i) => `<span style="width:8px;height:8px;border-radius:50%;background:${i === howIdx ? 'var(--accent)' : 'var(--line)'}"></span>`).join('')}</div>
     <div style="display:flex;gap:8px">${howIdx > 0 ? `<button class="btn btn-ghost" style="flex:1" onclick="howIdx--;howRender(${!!manual})">Back</button>` : ''}
       <button class="btn btn-primary" style="flex:2" onclick="${last ? 'howClose(false)' : `howIdx++;howRender(${!!manual})`}">${last ? 'Got it' : 'Next'}</button></div>
