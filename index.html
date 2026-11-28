@@ -354,7 +354,7 @@
   <div class="drive-lock" id="drive-lock" style="position:absolute;flex-wrap:wrap;padding-right:40px"><span style="font-size:22px">🚗</span><div style="flex:1;min-width:0"><b>Eyes on the road</b>You're moving, so tapping is locked. Tokens still collect by themselves and voice keeps guiding you. Tap ✕ only if you're not the driver.</div><button onclick="setPassenger()">I'm a passenger</button><button onclick="ackLock()" style="position:absolute;top:6px;right:8px;background:none;border:none;color:var(--muted);font-size:20px;padding:4px 6px;margin:0">✕</button></div>
   <div class="navbar" id="navbar"><div style="flex:1"><div class="n-main" id="n-main"></div><div class="n-sub" id="n-sub"></div></div><button id="n-routes" onclick="showRoutePicker()" style="margin-left:0">Routes</button><button id="n-mode" onclick="toggleNavMode()" style="margin-left:0">🚗 Drive</button><button id="n-exit" onclick="startSetExit()" style="margin-left:0" title="Tell the app where you pull out onto the road">📍 My street</button><button onclick="stopNav()">End</button></div>
 
-  <button class="fab left" onclick="openSheet('rewards')" title="Rewards">🎁</button>
+  <button class="fab left" onclick="howToPlay(true)" title="How to play" style="font-size:26px;font-weight:900;color:var(--accent)">?</button>
   <button class="fab right" onclick="recenter()" title="My location">📍</button>
 
   <div class="nav">
@@ -372,7 +372,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v78';
+const BUILD = 'v80';
 setInterval(() => { if (typeof drawMarkers === 'function' && Object.keys(markers || {}).length) drawMarkers(); }, 60000);
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
@@ -569,6 +569,33 @@ async function installApp() {
 }
 function dismissInstall() { localStorage.setItem('cl_install_dismissed', String(Date.now() + 7 * 86400000)); hideInstall(); }
 function hideInstall() { const bar = $('install-bar'); if (bar) bar.style.display = 'none'; }
+/* How to play: 5 cards, shown on every login until "Got it, don't show again"; the ? button reopens it any time */
+const HOWTO = [
+  ['🪙', 'Tokens live on the road', 'Businesses put a token on the street in front of their door. Each drive-through pays the road\'s points: 25 on a main road, 50 on a mini main road, 100 on a secret road.'],
+  ['🧭', 'Tap a token, tap Navigate, drive', 'Pickups only count when you are navigating to that token. Set it up while parked, then drive through - it collects by itself, hands-free. No tapping while moving.'],
+  ['🎯', '100 points = a reward', 'Points stay with the business you earned them at. At 100 points you have earned that business\'s reward - a free coffee, a car wash, 20% off, whatever they set.'],
+  ['✅', 'Walk in and scan the sticker', 'At the counter, scan the ChainLane sticker. Your screen turns green, the reward is yours. Then rate the place for other drivers.'],
+  ['🔍', 'Going somewhere? Pick up tokens on the way', 'Search any place or address, tick the tokens near your route, hit Go. Points on the drive you were already making.']
+];
+let howIdx = 0;
+function howToPlay(manual) {
+  howIdx = 0;
+  let m = $('howto'); if (!m) { m = document.createElement('div'); m.id = 'howto'; m.style.cssText = 'position:fixed;inset:0;background:rgba(10,15,30,.92);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px'; document.body.appendChild(m); }
+  m.style.display = 'flex'; howRender(manual);
+}
+function howRender(manual) {
+  const [ic, t, body] = HOWTO[howIdx], last = howIdx === HOWTO.length - 1;
+  $('howto').innerHTML = `<div style="background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:26px 22px;max-width:380px;width:100%;text-align:center">
+    <div style="font-size:56px;line-height:1">${ic}</div>
+    <div style="font-size:12px;letter-spacing:2px;color:var(--accent);font-weight:700;margin:14px 0 6px">HOW TO PLAY · ${howIdx + 1} OF ${HOWTO.length}</div>
+    <h2 style="margin:0 0 10px;font-size:22px">${t}</h2>
+    <p style="color:#d6dbe6;line-height:1.55;margin:0 0 18px;font-size:15px">${body}</p>
+    <div style="display:flex;gap:6px;justify-content:center;margin-bottom:16px">${HOWTO.map((_, i) => `<span style="width:8px;height:8px;border-radius:50%;background:${i === howIdx ? 'var(--accent)' : 'var(--line)'}"></span>`).join('')}</div>
+    <div style="display:flex;gap:8px">${howIdx > 0 ? `<button class="btn btn-ghost" style="flex:1" onclick="howIdx--;howRender(${!!manual})">Back</button>` : ''}
+      <button class="btn btn-primary" style="flex:2" onclick="${last ? 'howClose(false)' : `howIdx++;howRender(${!!manual})`}">${last ? 'Got it' : 'Next'}</button></div>
+    ${last && !manual ? `<button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="howClose(true)">Got it, don't show this again</button>` : `<button class="btn btn-ghost" style="width:100%;margin-top:8px;color:var(--muted)" onclick="howClose(false)">Skip</button>`}</div>`;
+}
+function howClose(forever) { if (forever) localStorage.setItem('cl_howto', 'off'); const m = $('howto'); if (m) m.style.display = 'none'; }
 async function enterApp() {
   $('auth').classList.add('hidden'); $('app').classList.remove('hidden');
   await loadProfile();
@@ -580,6 +607,7 @@ async function enterApp() {
     if (gate === 'waitlist' && !letIn) { showWelcome(profile?.full_name || '', true); return; }
   } catch (e) {}
   setTimeout(maybeShowInstall, 2500);
+  if (localStorage.getItem('cl_howto') !== 'off') setTimeout(() => howToPlay(false), 600);
   if (!map) initMap();
   await Promise.all([loadSettings(), loadCooldowns()]);
   await loadNodes();
