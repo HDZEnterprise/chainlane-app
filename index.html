@@ -372,7 +372,7 @@
 /* =========================================================================
    CONFIG — these are PUBLIC keys. Security lives in the database (RLS + RPC).
    ========================================================================= */
-const BUILD = 'v81';
+const BUILD = 'v82';
 setInterval(() => { if (typeof drawMarkers === 'function' && Object.keys(markers || {}).length) drawMarkers(); }, 60000);
 const CHAIN_SVG = (on, sz) => `<svg viewBox="0 0 24 24" width="${sz || 18}" height="${sz || 18}" style="vertical-align:-3px" fill="none" stroke="${on ? '#EAB308' : 'rgba(148,163,184,.35)'}" stroke-width="2.4" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2"/></svg>`;
 const chainsHtml = (n, sz) => `<span style="white-space:nowrap;display:inline-block">${[1,2,3,4,5].map(i => CHAIN_SVG(i <= Math.round(n || 0), sz)).join('')}</span>`;
@@ -571,11 +571,11 @@ function dismissInstall() { localStorage.setItem('cl_install_dismissed', String(
 function hideInstall() { const bar = $('install-bar'); if (bar) bar.style.display = 'none'; }
 /* How to play: 5 cards, shown on every login until "Got it, don't show again"; the ? button reopens it any time */
 const HOWTO = [
-  ['🪙', 'Tokens are on the road', 'Each drive-through = points.<br><b>25 · 50 · 100</b>'],
-  ['🧭', 'Tap a token. Tap Navigate. Drive.', 'It collects by itself.<br>Hands on the wheel.'],
-  ['🎯', '100 points = a reward', 'From that business.<br>Free coffee, car wash, 20% off…'],
-  ['✅', 'Walk in. Scan the sticker.', 'Screen turns green.<br>Enjoy.'],
-  ['🔍', 'Going somewhere?', 'Search it. Tick tokens on the way. Go.']
+  ['🪙', 'Collect Tokens on the Road', 'Each Drive Earns Points<br><b>25pts · 50pts · 100pts</b>'],
+  ['🧭', 'Tap a Token. Navigate. Collect.', 'It collects by itself.<br>Hands on the wheel.'],
+  ['🎯', '100 Points = Reward', 'Free coffee, Free Pilates Class,<br>Free Tacos, Free ....'],
+  ['✅', 'Walk In. Scan the QR Code.', 'Screen turns green.<br>Enjoy.'],
+  ['🔍', 'Going Somewhere Else?', 'Search it. Collect tokens on the way to your next destination!']
 ];
 let howIdx = 0;
 function howToPlay(manual) {
